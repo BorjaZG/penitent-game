@@ -7,4 +7,6 @@ dependencies {
   if(enableGraalNative == 'true') {
     implementation "io.github.berstanio:gdx-svmhelper-annotations:$graalHelperVersion"
   }
+
+  api "com.badlogicgames.gdx:gdx-ai:1.8.2"
 }

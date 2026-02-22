@@ -3,145 +3,227 @@ package com.svalero.penitent;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.Animation;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.maps.tiled.TiledMap;
+import com.badlogic.gdx.maps.tiled.TiledMapTileLayer;
+import com.badlogic.gdx.maps.tiled.TmxMapLoader;
+import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
+import com.badlogic.gdx.math.Rectangle;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class MainGame extends ApplicationAdapter {
+
+    private OrthographicCamera camera;
+
+    // Mapa: 38x20 tiles de 32px = 1216x640px
+    private static final int   TILE_SIZE = 32;
+    private static final int   MAP_TILES_W = 38;
+    private static final int   MAP_TILES_H = 20;
+    private static final float MAP_W  = MAP_TILES_W * TILE_SIZE;  // 1216
+    private static final float MAP_H  = MAP_TILES_H * TILE_SIZE;  // 640
+
+    // Viewport (lo que se ve): mitad del mapa para hacer zoom cómodo
+    private static final float VIEW_W = 608f;
+    private static final float VIEW_H = 320f;
+
+    private TiledMap tiledMap;
+    private OrthogonalTiledMapRenderer mapRenderer;
+    private TiledMapTileLayer collisionLayer;
+
     private SpriteBatch batch;
+    private Player player;
+    private List<Enemy> enemies = new ArrayList<>();
+    private Set<Enemy> hitThisAttack = new HashSet<>();
+    private boolean wasAttacking = false;
 
-    private Texture idleSheet, runSheet, jumpSheet, fallSheet;
-    private Animation<TextureRegion> idleAnim, runAnim, jumpAnim, fallAnim;
+    // HUD
+    private OrthographicCamera hudCamera;
+    private Texture heartFull, heartEmpty;
+    private static final int HEART_SIZE   = 34; // 17px x2 para que se vea bien
+    private static final int HEART_MARGIN = 6;
 
-    private float stateTime = 0f;
-
-    private float x = 200, y = 120;
-    private float velocityY = 0;
-    private boolean onGround = false;
-
-    private float gravity = -800f;
-    private float jumpForce = 380f;
-
-    private float groundY = 100; // altura del suelo
-    private boolean facingRight = true;
-
-    private static final int FRAME_W = 120;
-    private static final int FRAME_H = 80;
-
-    // Para resetear animación al cambiar de estado
-    private enum State { IDLE, RUN, JUMP, FALL }
-    private State currentState = State.IDLE;
+    // Game Over
+    private boolean gameOver = false;
+    private BitmapFont font;
+    private GlyphLayout layout;
 
     @Override
     public void create() {
+        // Y ARRIBA (false) = coordenadas libGDX estándar
+        // El mapa se renderiza con Y=0 abajo, igual que libGDX
+        camera = new OrthographicCamera();
+        camera.setToOrtho(false, VIEW_W, VIEW_H);
+
+        tiledMap = new TmxMapLoader().load("mapa.tmx");
+        mapRenderer = new OrthogonalTiledMapRenderer(tiledMap, 1f);
+
+        collisionLayer = (TiledMapTileLayer) tiledMap.getLayers().get("suelo");
+
         batch = new SpriteBatch();
 
-        idleSheet = new Texture("player/idle.png");
-        runSheet  = new Texture("player/run.png");
-        jumpSheet = new Texture("player/jump.png");
-        fallSheet = new Texture("player/fall.png");
+        // HUD camera (fija, no sigue al jugador)
+        hudCamera = new OrthographicCamera();
+        hudCamera.setToOrtho(false, VIEW_W, VIEW_H);
+        hudCamera.update();
 
-        idleAnim = makeAnim(idleSheet, 0.10f); // 10 fps aprox
-        runAnim  = makeAnim(runSheet,  0.08f); // un pelín más rápido
-        jumpAnim = makeAnim(jumpSheet, 0.12f); // 3 frames
-        fallAnim = makeAnim(fallSheet, 0.10f); // 2 frames
-    }
+        heartFull  = new Texture("hud/heart_full.png");
+        heartEmpty = new Texture("hud/heart_empty.png");
 
-    private Animation<TextureRegion> makeAnim(Texture sheet, float frameDuration) {
-        TextureRegion[][] grid = TextureRegion.split(sheet, FRAME_W, FRAME_H);
-        TextureRegion[] frames = grid[0]; // primera fila
-        Animation<TextureRegion> anim = new Animation<>(frameDuration, frames);
-        anim.setPlayMode(Animation.PlayMode.LOOP);
-        return anim;
+        font   = new BitmapFont();
+        layout = new GlyphLayout();
+
+        // Con Y-arriba: el suelo (fila 19 en Tiled) está en Y=0..32 en libGDX
+        // (Tiled invierte Y: fila 0 Tiled = Y alto en libGDX, fila 19 = Y=0)
+        // Jugador spawna encima del suelo: Y = 32
+        player = new Player(200, 32, collisionLayer);
+
+        enemies.add(new Enemy(400, 32, 300, 700, collisionLayer));
+        enemies.add(new Enemy(700, 32, 500, 1000, collisionLayer));
     }
 
     @Override
     public void render() {
         float dt = Gdx.graphics.getDeltaTime();
-        stateTime += dt;
 
-        float speed = 150f * dt;
-        boolean moving = false;
-
-        // Movimiento lateral + dirección
-        if (Gdx.input.isKeyPressed(Input.Keys.A)) {
-            x -= speed;
-            moving = true;
-            facingRight = false;
-        }
-        if (Gdx.input.isKeyPressed(Input.Keys.D)) {
-            x += speed;
-            moving = true;
-            facingRight = true;
+        // --- Game Over ---
+        if (gameOver) {
+            drawGameOver();
+            return;
         }
 
-        // Gravedad
-        velocityY += gravity * dt;
-        y += velocityY * dt;
-
-        // Suelo
-        if (y <= groundY) {
-            y = groundY;
-            velocityY = 0;
-            onGround = true;
-        } else {
-            onGround = false;
+        // Detectar muerte del jugador
+        if (!player.isAlive()) {
+            gameOver = true;
         }
 
-        // Salto
-        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) && onGround) {
-            velocityY = jumpForce;
-            onGround = false;
+        player.update(dt);
+        for (Enemy e : enemies) e.update(dt);
+        // Resetear enemigos golpeados cuando termina el ataque
+        if (wasAttacking && !player.isAttacking()) {
+            hitThisAttack.clear();
         }
+        wasAttacking = player.isAttacking();
+        checkCombat();
 
-        // Fondo oscuro
+        // Cámara sigue al jugador con límites del mapa
+        camera.position.x = player.x + Player.HITBOX_W / 2f;
+        camera.position.y = player.y + Player.HITBOX_H / 2f;
+        camera.position.x = Math.max(VIEW_W / 2f, Math.min(camera.position.x, MAP_W - VIEW_W / 2f));
+        camera.position.y = Math.max(VIEW_H / 2f, Math.min(camera.position.y, MAP_H - VIEW_H / 2f));
+        camera.update();
+
         Gdx.gl.glClearColor(0.05f, 0.05f, 0.07f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
-        // Estado actual (Idle/Run/Jump/Fall)
-        State newState;
-        if (!onGround) {
-            newState = (velocityY > 0) ? State.JUMP : State.FALL;
-        } else {
-            newState = moving ? State.RUN : State.IDLE;
-        }
+        mapRenderer.setView(camera);
+        mapRenderer.render();
 
-        // Si cambia el estado, resetea la animación para que empiece desde el frame 1
-        if (newState != currentState) {
-            currentState = newState;
-            stateTime = 0f;
-        }
-
-        // Elegir animación según estado
-        Animation<TextureRegion> anim;
-        switch (currentState) {
-            case RUN:  anim = runAnim;  break;
-            case JUMP: anim = jumpAnim; break;
-            case FALL: anim = fallAnim; break;
-            case IDLE:
-            default:   anim = idleAnim; break;
-        }
-
-        TextureRegion frame = anim.getKeyFrame(stateTime);
-
-        // Dibujar con flip (mirar izq/der)
+        batch.setProjectionMatrix(camera.combined);
         batch.begin();
-        if (facingRight) {
-            batch.draw(frame, x, y);
-        } else {
-            batch.draw(frame, x + FRAME_W, y, -FRAME_W, FRAME_H);
+        player.draw(batch);
+        for (Enemy e : enemies) e.draw(batch);
+        batch.end();
+
+        // --- HUD (corazones) ---
+        drawHUD();
+    }
+
+    private void drawHUD() {
+        batch.setProjectionMatrix(hudCamera.combined);
+        batch.begin();
+        int maxH = player.getMaxHealth();
+        int curH = player.getHealth();
+        for (int i = 0; i < maxH; i++) {
+            float hx = 10 + i * (HEART_SIZE + HEART_MARGIN);
+            float hy = VIEW_H - HEART_SIZE - 10;
+            Texture tex = (i < curH) ? heartFull : heartEmpty;
+            batch.draw(tex, hx, hy, HEART_SIZE, HEART_SIZE);
         }
         batch.end();
     }
 
+    private void drawGameOver() {
+        Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
+        batch.setProjectionMatrix(hudCamera.combined);
+        batch.begin();
+
+        // Título
+        font.getData().setScale(3f);
+        font.setColor(Color.RED);
+        layout.setText(font, "GAME OVER");
+        font.draw(batch, "GAME OVER",
+            (VIEW_W - layout.width) / 2f,
+            VIEW_H / 2f + 40);
+
+        // Instrucción
+        font.getData().setScale(1.5f);
+        font.setColor(Color.WHITE);
+        layout.setText(font, "Pulsa R para volver a intentarlo");
+        font.draw(batch, "Pulsa R para volver a intentarlo",
+            (VIEW_W - layout.width) / 2f,
+            VIEW_H / 2f - 20);
+
+        batch.end();
+
+        // Reiniciar con R
+        if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
+            restartGame();
+        }
+    }
+
+    private void restartGame() {
+        gameOver = false;
+        player = new Player(200, 32, collisionLayer);
+        enemies.clear();
+        enemies.add(new Enemy(400, 32, 300, 700, collisionLayer));
+        enemies.add(new Enemy(700, 32, 500, 1000, collisionLayer));
+        hitThisAttack.clear();
+        wasAttacking = false;
+    }
+
+    private void checkCombat() {
+        if (!player.isAlive()) return;
+
+        Rectangle playerBounds = player.getBounds();
+        Rectangle attackRange  = player.getAttackRange();
+
+        for (Enemy enemy : enemies) {
+            if (!enemy.isAlive()) continue;
+            Rectangle enemyBounds = enemy.getBounds();
+
+            // Jugador ataca al enemigo con J (1 hit por swing)
+            if (player.isAttacking() && attackRange.overlaps(enemyBounds) && !hitThisAttack.contains(enemy)) {
+                enemy.hit();
+                hitThisAttack.add(enemy);
+            }
+
+            // Contacto con enemigo daña al jugador (solo si no está en frames de invencibilidad)
+            if (playerBounds.overlaps(enemyBounds) && !player.isAttacking() && !player.isHit()) {
+                player.takeHit();
+            }
+        }
+    }
+
     @Override
     public void dispose() {
+        tiledMap.dispose();
+        mapRenderer.dispose();
         batch.dispose();
-        idleSheet.dispose();
-        runSheet.dispose();
-        jumpSheet.dispose();
-        fallSheet.dispose();
+        player.dispose();
+        for (Enemy e : enemies) e.dispose();
+        heartFull.dispose();
+        heartEmpty.dispose();
+        font.dispose();
     }
 }
