@@ -17,7 +17,6 @@ public class Player {
     public  static final float HITBOX_H  = 50f;
     private static final int   TILE_SIZE = 32;
 
-    // Física (Y arriba = positivo, libGDX estándar)
     private static final float GRAVITY    =  800f;
     private static final float JUMP_FORCE =  400f;
     private static final float SPEED      =  160f;
@@ -32,22 +31,44 @@ public class Player {
     private float stateTime     = 0f;
 
     // Ataque y combo
-    private boolean attacking    = false;
-    private boolean combo        = false;    // true = en fase combo
-    private boolean comboQueued  = false;    // J pulsado durante ataque normal
-    private float   attackTimer  = 0f;
-    private static final float ATTACK_DURATION = 0.32f; // 4 frames x 0.08s
-    private static final float COMBO_DURATION  = 0.70f; // 10 frames x 0.07s
+    private boolean attacking   = false;
+    private boolean combo       = false;
+    private boolean comboQueued = false;
+    private float   attackTimer = 0f;
+    private static final float ATTACK_DURATION = 0.32f;
+    private static final float COMBO_DURATION  = 0.70f;
 
     // Dash
     private boolean dashing   = false;
     private float   dashTimer = 0f;
 
-    // Hit / muerte
+    // Hit / invencibilidad
     private boolean hit      = false;
     private float   hitTimer = 0f;
-    private static final float HIT_DURATION = 1.5f;
-    private boolean dying    = false;
+    private static final float HIT_DURATION = 0.6f; // más corto → más dinámico
+
+    // Parpadeo durante invencibilidad
+    private static final float BLINK_INTERVAL = 0.08f;
+    private float blinkTimer   = 0f;
+    private boolean blinkVisible = true;
+
+    // Knockback al recibir daño
+    private float knockbackVelX = 0f;
+    private static final float KNOCKBACK_FORCE = 220f;
+    private static final float KNOCKBACK_DECAY = 800f;
+
+    // Muerte
+    private boolean dying = false;
+
+    // Eventos de sonido (se consumen cada frame desde MainGame)
+    public boolean eventAttack    = false;
+    public boolean eventJump      = false;
+    public boolean eventDash      = false;
+    public boolean eventDeath     = false;
+    public boolean eventHit       = false;
+    public boolean eventRunning   = false;
+    public boolean eventOnGround  = false;
+    public boolean eventWasOnGround = false;
 
     // Sistema de vida
     private int maxHealth     = 3;
@@ -56,13 +77,16 @@ public class Player {
     private enum State { IDLE, RUN, JUMP, FALL, ATTACK, DASH, HIT, DEATH }
     private State currentState = State.IDLE;
 
-    // Animaciones
     private Texture idleSheet, runSheet, jumpSheet, fallSheet;
     private Texture attackSheet, attackComboSheet, deathSheet, hitSheet, dashSheet;
     private Animation<TextureRegion> idleAnim, runAnim, jumpAnim, fallAnim;
     private Animation<TextureRegion> attackAnim, attackComboAnim, deathAnim, hitAnim, dashAnim;
 
-    private TiledMapTileLayer collisionLayer;
+    public TiledMapTileLayer collisionLayer;
+
+    // Límites del mapa para no salirse
+    public float mapMinX = 0f;
+    public float mapMaxX = Float.MAX_VALUE;
 
     public Player(float startX, float startY, TiledMapTileLayer collisionLayer) {
         this.x = startX;
@@ -109,31 +133,40 @@ public class Player {
             return;
         }
 
-        // --- Hit en curso ---
+        // --- Invencibilidad y parpadeo ---
         if (hit) {
             hitTimer -= dt;
-            if (hitTimer <= 0) hit = false;
+            blinkTimer -= dt;
+            if (blinkTimer <= 0) {
+                blinkVisible = !blinkVisible;
+                blinkTimer = BLINK_INTERVAL;
+            }
+            if (hitTimer <= 0) {
+                hit = false;
+                blinkVisible = true;
+            }
+        }
+
+        // --- Knockback ---
+        if (knockbackVelX != 0) {
+            x += knockbackVelX * dt;
+            if (knockbackVelX > 0) {
+                knockbackVelX = Math.max(0, knockbackVelX - KNOCKBACK_DECAY * dt);
+            } else {
+                knockbackVelX = Math.min(0, knockbackVelX + KNOCKBACK_DECAY * dt);
+            }
         }
 
         // --- Ataque y combo ---
         if (attacking) {
             attackTimer -= dt;
-            // Si se pulsa J durante el ataque normal, encola el combo
-            if (!combo && Gdx.input.isKeyJustPressed(Input.Keys.J)) {
-                comboQueued = true;
-            }
+            if (!combo && Gdx.input.isKeyJustPressed(Input.Keys.J)) comboQueued = true;
             if (attackTimer <= 0) {
                 if (!combo && comboQueued) {
-                    // Activar combo
-                    combo       = true;
-                    comboQueued = false;
-                    attackTimer = COMBO_DURATION;
-                    stateTime   = 0f;
+                    combo = true; comboQueued = false;
+                    attackTimer = COMBO_DURATION; stateTime = 0f;
                 } else {
-                    // Fin del ataque
-                    attacking   = false;
-                    combo       = false;
-                    comboQueued = false;
+                    attacking = false; combo = false; comboQueued = false;
                 }
             }
         }
@@ -145,77 +178,74 @@ public class Player {
             if (dashTimer <= 0) dashing = false;
         }
 
-        // --- Movimiento normal (solo si no ataca ni dashea) ---
+        // --- Movimiento ---
         boolean moving = false;
         if (!dashing && !attacking) {
             if (Gdx.input.isKeyPressed(Input.Keys.A)) { x -= SPEED * dt; facingRight = false; moving = true; }
             if (Gdx.input.isKeyPressed(Input.Keys.D)) { x += SPEED * dt; facingRight = true;  moving = true; }
         }
 
+        // Guardar estado anterior de suelo
+        eventWasOnGround = onGround;
+
         // --- Gravedad ---
         velocityY -= GRAVITY * dt;
         y += velocityY * dt;
 
         resolveMapCollision();
+        eventOnGround = onGround;
 
-        // --- Inputs de acción ---
+        // Limitar dentro del mapa
+        if (x < mapMinX) x = mapMinX;
+        if (x > mapMaxX - HITBOX_W) x = mapMaxX - HITBOX_W;
+
+        // --- Inputs ---
         if (!attacking && !dashing) {
-            // Salto
             if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) && onGround) {
-                velocityY = JUMP_FORCE;
-                onGround = false;
+                velocityY = JUMP_FORCE; onGround = false;
+                eventJump = true;
             }
-            // Ataque (J) - solo si no está ya atacando
             if (Gdx.input.isKeyJustPressed(Input.Keys.J)) {
-                attacking   = true;
-                combo       = false;
-                comboQueued = false;
-                attackTimer = ATTACK_DURATION;
-                stateTime   = 0f;
+                attacking = true; combo = false; comboQueued = false;
+                attackTimer = ATTACK_DURATION; stateTime = 0f;
+                eventAttack = true;
             }
-            // Dash (K)
             if (Gdx.input.isKeyJustPressed(Input.Keys.K) && onGround) {
-                dashing   = true;
-                dashTimer = DASH_TIME;
-                stateTime = 0f;
+                dashing = true; dashTimer = DASH_TIME; stateTime = 0f;
+                eventDash = true;
             }
         }
 
+        eventRunning = moving && onGround;
+
         // --- Estado animación ---
         State newState;
-        if (dying)          newState = State.DEATH;
-        else if (hit)       newState = State.HIT;
-        else if (dashing)   newState = State.DASH;
-        else if (attacking) newState = State.ATTACK;
-        else if (!onGround) newState = velocityY > 0 ? State.JUMP : State.FALL;
-        else                newState = moving ? State.RUN : State.IDLE;
+        if      (dying)      newState = State.DEATH;
+        else if (hit)        newState = State.HIT;
+        else if (dashing)    newState = State.DASH;
+        else if (attacking)  newState = State.ATTACK;
+        else if (!onGround)  newState = velocityY > 0 ? State.JUMP : State.FALL;
+        else                 newState = moving ? State.RUN : State.IDLE;
 
         if (newState != currentState) { currentState = newState; stateTime = 0f; }
     }
 
     private void resolveMapCollision() {
-        // Caída (Y disminuye)
         if (velocityY <= 0) {
             int tx1 = (int)(x / TILE_SIZE);
             int tx2 = (int)((x + HITBOX_W - 1) / TILE_SIZE);
             int ty  = (int)(y / TILE_SIZE);
             if (isSolid(tx1, ty) || isSolid(tx2, ty)) {
-                y        = (ty + 1) * TILE_SIZE;
-                velocityY = 0;
-                onGround  = true;
-                return;
+                y = (ty + 1) * TILE_SIZE; velocityY = 0; onGround = true; return;
             }
         }
         onGround = false;
-
-        // Subida (Y aumenta)
         if (velocityY > 0) {
             int tx1 = (int)(x / TILE_SIZE);
             int tx2 = (int)((x + HITBOX_W - 1) / TILE_SIZE);
             int ty  = (int)((y + HITBOX_H) / TILE_SIZE);
             if (isSolid(tx1, ty) || isSolid(tx2, ty)) {
-                y        = ty * TILE_SIZE - HITBOX_H;
-                velocityY = 0;
+                y = ty * TILE_SIZE - HITBOX_H; velocityY = 0;
             }
         }
     }
@@ -226,16 +256,19 @@ public class Player {
     }
 
     public void draw(SpriteBatch batch) {
+        // No dibujar durante los frames de parpadeo
+        if (hit && !blinkVisible) return;
+
         Animation<TextureRegion> anim;
         switch (currentState) {
-            case RUN:    anim = runAnim;         break;
-            case JUMP:   anim = jumpAnim;        break;
-            case FALL:   anim = fallAnim;        break;
+            case RUN:    anim = runAnim;  break;
+            case JUMP:   anim = jumpAnim; break;
+            case FALL:   anim = fallAnim; break;
             case ATTACK: anim = combo ? attackComboAnim : attackAnim; break;
-            case DASH:   anim = dashAnim;        break;
-            case HIT:    anim = hitAnim;         break;
-            case DEATH:  anim = deathAnim;       break;
-            default:     anim = idleAnim;        break;
+            case DASH:   anim = dashAnim; break;
+            case HIT:    anim = hitAnim;  break;
+            case DEATH:  anim = deathAnim; break;
+            default:     anim = idleAnim; break;
         }
         TextureRegion frame = anim.getKeyFrame(stateTime);
         float drawX = x - (FRAME_W - HITBOX_W) / 2f;
@@ -244,43 +277,39 @@ public class Player {
         else             batch.draw(frame, drawX + FRAME_W, drawY, -FRAME_W, FRAME_H);
     }
 
-    /** Llamado cuando un enemigo golpea al jugador */
-    public void takeHit() {
+    public void takeHit(float enemyX) {
         if (hit || dying) return;
-        hit           = true;
-        hitTimer      = HIT_DURATION;
+        hit = true; hitTimer = HIT_DURATION;
+        eventHit = true;
+        blinkTimer = BLINK_INTERVAL; blinkVisible = true;
         currentHealth--;
-        if (currentHealth <= 0) {
-            kill();
-        }
+        // Knockback alejándose del enemigo
+        knockbackVelX = (x > enemyX) ? KNOCKBACK_FORCE : -KNOCKBACK_FORCE;
+        if (currentHealth <= 0) kill();
     }
 
-    public boolean isHit() { return hit; }
+    // Sobrecarga sin knockback por compatibilidad
+    public void takeHit() { takeHit(x); }
 
-    public int getHealth()    { return currentHealth; }
-    public int getMaxHealth() { return maxHealth; }
+    public boolean isHit()        { return hit; }
+    public int getHealth()        { return currentHealth; }
+    public int getMaxHealth()     { return maxHealth; }
+    public boolean isAttacking()  { return attacking; }
+    public boolean isAlive()      { return alive; }
+    public float getX()           { return x; }
+    public float getY()           { return y; }
 
-    /** Llamado cuando el jugador muere */
     public void kill() {
         if (dying) return;
-        dying     = true;
-        stateTime = 0f;
-        currentState = State.DEATH;
+        dying = true; stateTime = 0f; currentState = State.DEATH;
+        eventDeath = true;
     }
 
-    /** Devuelve true si el ataque está activo (para detectar si golpea a enemigos) */
-    public boolean isAttacking() { return attacking; }
-
-    public Rectangle getBounds()      { return new Rectangle(x, y, HITBOX_W, HITBOX_H); }
+    public Rectangle getBounds() { return new Rectangle(x, y, HITBOX_W, HITBOX_H); }
     public Rectangle getAttackRange() {
-        // Hitbox del ataque delante del jugador
         float ax = facingRight ? x + HITBOX_W : x - 25f;
         return new Rectangle(ax, y, 25f, HITBOX_H);
     }
-
-    public boolean isAlive() { return alive; }
-    public float   getX()    { return x; }
-    public float   getY()    { return y; }
 
     public void dispose() {
         idleSheet.dispose(); runSheet.dispose(); jumpSheet.dispose(); fallSheet.dispose();

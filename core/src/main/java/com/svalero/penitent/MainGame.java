@@ -24,32 +24,47 @@ public class MainGame extends ApplicationAdapter {
 
     private OrthographicCamera camera;
 
-    // Mapa: 38x20 tiles de 32px = 1216x640px
-    private static final int   TILE_SIZE = 32;
+    private static final int   TILE_SIZE   = 32;
     private static final int   MAP_TILES_W = 38;
     private static final int   MAP_TILES_H = 20;
     private static final float MAP_W  = MAP_TILES_W * TILE_SIZE;  // 1216
     private static final float MAP_H  = MAP_TILES_H * TILE_SIZE;  // 640
 
-    // Viewport (lo que se ve): mitad del mapa para hacer zoom cómodo
+    private static final int   MAP2_TILES_W = 39;
+    private static final float MAP2_W = MAP2_TILES_W * TILE_SIZE; // 1248
+
+    private int   currentMap  = 1;
+    private float currentMapW = MAP_W;
+
     private static final float VIEW_W = 608f;
     private static final float VIEW_H = 320f;
 
-    private TiledMap tiledMap;
-    private OrthogonalTiledMapRenderer mapRenderer;
-    private TiledMapTileLayer collisionLayer;
+    // Suavizado de cámara
+    private static final float CAM_LERP = 6f;
+    private float camTargetX, camTargetY;
+
+    private TiledMap tiledMap, tiledMap2;
+    private OrthogonalTiledMapRenderer mapRenderer, mapRenderer2;
+    private TiledMapTileLayer collisionLayer, collisionLayer2;
 
     private SpriteBatch batch;
     private Player player;
-    private List<Enemy> enemies = new ArrayList<>();
+    private List<Enemy> enemies     = new ArrayList<>();
     private Set<Enemy> hitThisAttack = new HashSet<>();
-    private boolean wasAttacking = false;
+    private boolean wasAttacking    = false;
 
     // HUD
     private OrthographicCamera hudCamera;
     private Texture heartFull, heartEmpty;
-    private static final int HEART_SIZE   = 34; // 17px x2 para que se vea bien
+    private static final int HEART_SIZE   = 34;
     private static final int HEART_MARGIN = 6;
+
+    // Flash de daño en pantalla
+    private float damageFlashTimer = 0f;
+    private static final float DAMAGE_FLASH_DURATION = 0.15f;
+
+    // Audio
+    private SoundManager sound;
 
     // Game Over
     private boolean gameOver = false;
@@ -58,19 +73,19 @@ public class MainGame extends ApplicationAdapter {
 
     @Override
     public void create() {
-        // Y ARRIBA (false) = coordenadas libGDX estándar
-        // El mapa se renderiza con Y=0 abajo, igual que libGDX
         camera = new OrthographicCamera();
         camera.setToOrtho(false, VIEW_W, VIEW_H);
 
-        tiledMap = new TmxMapLoader().load("mapa.tmx");
+        tiledMap    = new TmxMapLoader().load("mapa.tmx");
         mapRenderer = new OrthogonalTiledMapRenderer(tiledMap, 1f);
-
         collisionLayer = (TiledMapTileLayer) tiledMap.getLayers().get("suelo");
+
+        tiledMap2    = new TmxMapLoader().load("mapa_2.tmx");
+        mapRenderer2 = new OrthogonalTiledMapRenderer(tiledMap2, 1f);
+        collisionLayer2 = (TiledMapTileLayer) tiledMap2.getLayers().get("suelo");
 
         batch = new SpriteBatch();
 
-        // HUD camera (fija, no sigue al jugador)
         hudCamera = new OrthographicCamera();
         hudCamera.setToOrtho(false, VIEW_W, VIEW_H);
         hudCamera.update();
@@ -81,60 +96,126 @@ public class MainGame extends ApplicationAdapter {
         font   = new BitmapFont();
         layout = new GlyphLayout();
 
-        // Con Y-arriba: el suelo (fila 19 en Tiled) está en Y=0..32 en libGDX
-        // (Tiled invierte Y: fila 0 Tiled = Y alto en libGDX, fila 19 = Y=0)
-        // Jugador spawna encima del suelo: Y = 32
-        player = new Player(200, 32, collisionLayer);
+        sound = new SoundManager();
+        sound.playMap1Music();
 
-        enemies.add(new Enemy(400, 32, 300, 700, collisionLayer));
-        enemies.add(new Enemy(700, 32, 500, 1000, collisionLayer));
+        initMap1();
+    }
+
+    private void initMap1() {
+        player = new Player(200, 32, collisionLayer);
+        player.mapMinX = 0f;
+        player.mapMaxX = MAP_W + 50f; // permite llegar al trigger de cambio de mapa
+        enemies.clear();
+        enemies.add(new Enemy(500, 32, 300, 700, collisionLayer));
+        enemies.add(new Enemy(850, 32, 650, 1050, collisionLayer));
+        camTargetX = player.x;
+        camTargetY = player.y;
     }
 
     @Override
     public void render() {
-        float dt = Gdx.graphics.getDeltaTime();
+        float dt = Math.min(Gdx.graphics.getDeltaTime(), 0.05f); // cap delta para evitar saltos
 
-        // --- Game Over ---
-        if (gameOver) {
-            drawGameOver();
-            return;
-        }
+        if (gameOver) { drawGameOver(); return; }
 
-        // Detectar muerte del jugador
-        if (!player.isAlive()) {
-            gameOver = true;
-        }
+        if (!player.isAlive()) { gameOver = true; return; }
 
+        // Actualizar
         player.update(dt);
-        for (Enemy e : enemies) e.update(dt);
-        // Resetear enemigos golpeados cuando termina el ataque
-        if (wasAttacking && !player.isAttacking()) {
-            hitThisAttack.clear();
+
+        // --- Sonidos del jugador ---
+        if (player.eventAttack)   { sound.playAttack();      player.eventAttack = false; }
+        if (player.eventJump)     { sound.playJump();        player.eventJump   = false; }
+        if (player.eventDash)     { sound.playDash();        player.eventDash   = false; }
+        if (player.eventDeath)    { sound.playPlayerDeath(); player.eventDeath  = false; }
+        if (player.eventHit)      { sound.playHit();         player.eventHit    = false; }
+        sound.updatePlayerSounds(dt, player.eventRunning,
+            player.eventOnGround, player.eventWasOnGround);
+
+        for (Enemy e : enemies) {
+            e.setPlayerPosition(player.x, player.y);
+            e.update(dt);
+
+            // Sonidos del enemigo
+            if (e.eventDeath)       { sound.playEnemyDeath();  e.eventDeath       = false; }
+            if (e.eventAttackStart) { sound.playEnemyAttack(); e.eventAttackStart  = false; }
+            sound.updateEnemySteps(dt, e.eventMoving && e.isAlive() && !e.isDying());
         }
+
+        // Cambio de mapa
+        if (currentMap == 1 && player.x > currentMapW - 10) switchToMap2();
+        if (currentMap == 2 && player.x < 10)               switchToMap1();
+
+        // Reset hit set al terminar el ataque
+        if (wasAttacking && !player.isAttacking()) hitThisAttack.clear();
         wasAttacking = player.isAttacking();
+
         checkCombat();
 
-        // Cámara sigue al jugador con límites del mapa
-        camera.position.x = player.x + Player.HITBOX_W / 2f;
-        camera.position.y = player.y + Player.HITBOX_H / 2f;
-        camera.position.x = Math.max(VIEW_W / 2f, Math.min(camera.position.x, MAP_W - VIEW_W / 2f));
-        camera.position.y = Math.max(VIEW_H / 2f, Math.min(camera.position.y, MAP_H - VIEW_H / 2f));
+        // Flash de daño
+        if (damageFlashTimer > 0) damageFlashTimer -= dt;
+
+        // --- Cámara con lerp suave ---
+        camTargetX = player.x + Player.HITBOX_W / 2f;
+        camTargetY = player.y + Player.HITBOX_H / 2f;
+        camTargetX = Math.max(VIEW_W / 2f, Math.min(camTargetX, currentMapW - VIEW_W / 2f));
+        camTargetY = Math.max(VIEW_H / 2f, Math.min(camTargetY, MAP_H - VIEW_H / 2f));
+
+        camera.position.x += (camTargetX - camera.position.x) * CAM_LERP * dt;
+        camera.position.y += (camTargetY - camera.position.y) * CAM_LERP * dt;
         camera.update();
 
+        // --- Render ---
         Gdx.gl.glClearColor(0.05f, 0.05f, 0.07f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
-        mapRenderer.setView(camera);
-        mapRenderer.render();
+        OrthogonalTiledMapRenderer active = (currentMap == 1) ? mapRenderer : mapRenderer2;
+        active.setView(camera);
+        active.render();
 
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
+        // Flash rojo al recibir daño
+        if (damageFlashTimer > 0) batch.setColor(1f, 0.3f, 0.3f, 1f);
         player.draw(batch);
+        batch.setColor(Color.WHITE);
         for (Enemy e : enemies) e.draw(batch);
         batch.end();
 
-        // --- HUD (corazones) ---
         drawHUD();
+    }
+
+    private void checkCombat() {
+        if (!player.isAlive()) return;
+
+        Rectangle playerBounds = player.getBounds();
+        Rectangle attackRange  = player.getAttackRange();
+
+        for (Enemy enemy : enemies) {
+            if (!enemy.isAlive() || enemy.isDying()) continue;
+            Rectangle enemyBounds = enemy.getBounds();
+
+            // Jugador ataca enemigo (1 hit por swing)
+            if (player.isAttacking() && attackRange.overlaps(enemyBounds)
+                && !hitThisAttack.contains(enemy)) {
+                enemy.hit();
+                hitThisAttack.add(enemy);
+            }
+
+            // Enemigo ataca al jugador (ventana de daño precisa)
+            if (enemy.isAttackActive() && enemy.getAttackBounds().overlaps(playerBounds)
+                && !player.isHit()) {
+                player.takeHit(enemy.x);
+                damageFlashTimer = DAMAGE_FLASH_DURATION;
+            }
+
+            // Contacto simple
+            if (playerBounds.overlaps(enemyBounds) && !player.isAttacking() && !player.isHit()) {
+                player.takeHit(enemy.x);
+                damageFlashTimer = DAMAGE_FLASH_DURATION;
+            }
+        }
     }
 
     private void drawHUD() {
@@ -145,8 +226,7 @@ public class MainGame extends ApplicationAdapter {
         for (int i = 0; i < maxH; i++) {
             float hx = 10 + i * (HEART_SIZE + HEART_MARGIN);
             float hy = VIEW_H - HEART_SIZE - 10;
-            Texture tex = (i < curH) ? heartFull : heartEmpty;
-            batch.draw(tex, hx, hy, HEART_SIZE, HEART_SIZE);
+            batch.draw((i < curH) ? heartFull : heartEmpty, hx, hy, HEART_SIZE, HEART_SIZE);
         }
         batch.end();
     }
@@ -158,72 +238,66 @@ public class MainGame extends ApplicationAdapter {
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
 
-        // Título
         font.getData().setScale(3f);
         font.setColor(Color.RED);
         layout.setText(font, "GAME OVER");
-        font.draw(batch, "GAME OVER",
-            (VIEW_W - layout.width) / 2f,
-            VIEW_H / 2f + 40);
+        font.draw(batch, "GAME OVER", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 50);
 
-        // Instrucción
         font.getData().setScale(1.5f);
         font.setColor(Color.WHITE);
         layout.setText(font, "Pulsa R para volver a intentarlo");
         font.draw(batch, "Pulsa R para volver a intentarlo",
-            (VIEW_W - layout.width) / 2f,
-            VIEW_H / 2f - 20);
+            (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 10);
 
         batch.end();
 
-        // Reiniciar con R
         if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
-            restartGame();
+            gameOver    = false;
+            currentMap  = 1;
+            currentMapW = MAP_W;
+            initMap1();
+            hitThisAttack.clear();
+            wasAttacking = false;
         }
     }
 
-    private void restartGame() {
-        gameOver = false;
-        player = new Player(200, 32, collisionLayer);
+    private void switchToMap1() {
+        sound.playMap1Music();
+        currentMap  = 1;
+        currentMapW = MAP_W;
+        player.x    = MAP_W - 60;
+        player.collisionLayer = collisionLayer;
+        player.mapMinX = 0f;
+        player.mapMaxX = MAP_W + 50f; // permite llegar al trigger de cambio de mapa
         enemies.clear();
-        enemies.add(new Enemy(400, 32, 300, 700, collisionLayer));
-        enemies.add(new Enemy(700, 32, 500, 1000, collisionLayer));
+        enemies.add(new Enemy(500, 32, 300, 700, collisionLayer));
+        enemies.add(new Enemy(850, 32, 650, 1050, collisionLayer));
         hitThisAttack.clear();
-        wasAttacking = false;
     }
 
-    private void checkCombat() {
-        if (!player.isAlive()) return;
-
-        Rectangle playerBounds = player.getBounds();
-        Rectangle attackRange  = player.getAttackRange();
-
-        for (Enemy enemy : enemies) {
-            if (!enemy.isAlive()) continue;
-            Rectangle enemyBounds = enemy.getBounds();
-
-            // Jugador ataca al enemigo con J (1 hit por swing)
-            if (player.isAttacking() && attackRange.overlaps(enemyBounds) && !hitThisAttack.contains(enemy)) {
-                enemy.hit();
-                hitThisAttack.add(enemy);
-            }
-
-            // Contacto con enemigo daña al jugador (solo si no está en frames de invencibilidad)
-            if (playerBounds.overlaps(enemyBounds) && !player.isAttacking() && !player.isHit()) {
-                player.takeHit();
-            }
-        }
+    private void switchToMap2() {
+        sound.playMap2Music();
+        currentMap  = 2;
+        currentMapW = MAP2_W;
+        player.x    = 30;
+        player.collisionLayer = collisionLayer2;
+        player.mapMinX = 0f;
+        player.mapMaxX = MAP2_W + 50f; // permite llegar al trigger de cambio de mapa
+        enemies.clear();
+        enemies.add(new Enemy(400, 32, 200, 800, collisionLayer2));
+        enemies.add(new Enemy(900, 32, 700, 1150, collisionLayer2));
+        hitThisAttack.clear();
     }
 
     @Override
     public void dispose() {
-        tiledMap.dispose();
-        mapRenderer.dispose();
+        sound.dispose();
+        tiledMap.dispose();   mapRenderer.dispose();
+        tiledMap2.dispose();  mapRenderer2.dispose();
         batch.dispose();
         player.dispose();
         for (Enemy e : enemies) e.dispose();
-        heartFull.dispose();
-        heartEmpty.dispose();
+        heartFull.dispose();  heartEmpty.dispose();
         font.dispose();
     }
 }
