@@ -7,7 +7,6 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.maps.tiled.TiledMap;
@@ -60,13 +59,16 @@ public class GameScreen implements Screen {
     private float damageFlashTimer = 0f;
     private static final float DAMAGE_FLASH_DURATION = 0.15f;
 
+    // Confirmación de guardado
+    private float saveConfirmTimer = 0f;
+    private static final float SAVE_CONFIRM_DURATION = 2.5f;
+
     // Audio
     private SoundManager sound;
 
     // Game Over / Pausa
     private boolean gameOver = false;
     private boolean paused   = false;
-    private BitmapFont font;
     private GlyphLayout layout;
 
     // Punto de guardado más reciente (para el checkpoint)
@@ -107,7 +109,6 @@ public class GameScreen implements Screen {
         heartFull  = new Texture("hud/heart_full.png");
         heartEmpty = new Texture("hud/heart_empty.png");
 
-        font   = new BitmapFont();
         layout = new GlyphLayout();
 
         sound = new SoundManager();
@@ -183,6 +184,7 @@ public class GameScreen implements Screen {
 
         checkCombat();
         if (damageFlashTimer > 0) damageFlashTimer -= dt;
+        if (saveConfirmTimer  > 0) saveConfirmTimer  -= dt;
 
         // Cámara lerp
         camTargetX = Math.max(VIEW_W/2f, Math.min(player.x + Player.HITBOX_W/2f, currentMapW - VIEW_W/2f));
@@ -250,9 +252,14 @@ public class GameScreen implements Screen {
             batch.draw(i < player.getHealth() ? heartFull : heartEmpty, hx, hy, HEART_SIZE, HEART_SIZE);
         }
         // Indicador de mapa
-        font.getData().setScale(0.9f);
-        font.setColor(new Color(0.7f, 0.6f, 0.6f, 0.8f));
-        font.draw(batch, SaveManager.getZoneName(currentMap), VIEW_W - 120, VIEW_H - 12);
+        FontManager.small.setColor(new Color(0.7f, 0.6f, 0.6f, 0.8f));
+        FontManager.small.draw(batch, SaveManager.getZoneName(currentMap), VIEW_W - 150, VIEW_H - 12);
+        if (saveConfirmTimer > 0) {
+            FontManager.small.setColor(new Color(0.3f, 1f, 0.4f, Math.min(1f, saveConfirmTimer * 2f)));
+            String msg = "Partida guardada correctamente";
+            layout.setText(FontManager.small, msg);
+            FontManager.small.draw(batch, msg, (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 60);
+        }
         batch.end();
     }
 
@@ -262,24 +269,22 @@ public class GameScreen implements Screen {
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
 
-        font.getData().setScale(3f);
-        font.setColor(Color.WHITE);
-        layout.setText(font, "PAUSA");
-        font.draw(batch, "PAUSA", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 60);
+        FontManager.title.setColor(Color.WHITE);
+        layout.setText(FontManager.title, "PAUSA");
+        FontManager.title.draw(batch, "PAUSA", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 60);
 
-        font.getData().setScale(1.4f);
-        font.setColor(new Color(0.8f, 0.7f, 0.5f, 1f));
-
-        String[] opts = { "ESC  -  Continuar", "G  -  Guardar partida", "M  -  Volver al menú" };
+        FontManager.menu.setColor(new Color(0.8f, 0.7f, 0.5f, 1f));
+        String[] opts = { "ESC  -  Continuar", "G  -  Guardar partida", "M  -  Volver al menu" };
         for (int i = 0; i < opts.length; i++) {
-            layout.setText(font, opts[i]);
-            font.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - i * 35);
+            layout.setText(FontManager.menu, opts[i]);
+            FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - i * 35);
         }
         batch.end();
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.G)) {
-            // Por ahora siempre guarda en slot 0; en el futuro se puede elegir
             SaveManager.save(0, currentMap, player.x, player.y, player.getHealth());
+            saveConfirmTimer = SAVE_CONFIRM_DURATION;
+            paused = false;
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
             sound.stopMusic();
@@ -293,23 +298,28 @@ public class GameScreen implements Screen {
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
 
-        font.getData().setScale(3f);
-        font.setColor(Color.RED);
-        layout.setText(font, "GAME OVER");
-        font.draw(batch, "GAME OVER", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 50);
+        FontManager.title.setColor(Color.RED);
+        layout.setText(FontManager.title, "GAME OVER");
+        FontManager.title.draw(batch, "GAME OVER", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 50);
 
-        font.getData().setScale(1.4f);
-        font.setColor(Color.WHITE);
-        String[] opts = { "R  -  Reintentar", "M  -  Volver al menú" };
+        FontManager.menu.setColor(Color.WHITE);
+        boolean hasSave = SaveManager.hasSave();
+        String retryLabel = hasSave ? "R  -  Volver al ultimo guardado" : "R  -  Nueva Partida";
+        String[] opts = { retryLabel, "M  -  Volver al menu" };
         for (int i = 0; i < opts.length; i++) {
-            layout.setText(font, opts[i]);
-            font.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 10 - i * 35);
+            layout.setText(FontManager.menu, opts[i]);
+            FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 10 - i * 35);
         }
         batch.end();
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
             sound.dispose();
-            game.startNewGame();
+            if (SaveManager.hasSave()) {
+                // Cargar el slot 0 (el más reciente)
+                game.continueGame(0);
+            } else {
+                game.startNewGame();
+            }
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
             sound.stopMusic();
@@ -350,6 +360,5 @@ public class GameScreen implements Screen {
         batch.dispose(); player.dispose();
         for (Enemy e : enemies) e.dispose();
         heartFull.dispose(); heartEmpty.dispose();
-        font.dispose();
     }
 }
