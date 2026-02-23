@@ -9,6 +9,7 @@ public class SoundManager {
     // Música de fondo
     private Music musicMap1;
     private Music musicMap2;
+    private Music musicMenu;
     private Music currentMusic;
     private float musicVolume = 0.5f;
     private float sfxVolume   = 0.8f;
@@ -38,7 +39,10 @@ public class SoundManager {
     public SoundManager() {
         // Música
         musicMap1 = Gdx.audio.newMusic(Gdx.files.internal("audio/music.ogg"));
-        musicMap2 = musicMap1; // misma referencia, misma música
+        musicMap2 = musicMap1;
+        musicMenu = Gdx.audio.newMusic(Gdx.files.internal("audio/menu_music.ogg"));
+        musicMenu.setLooping(true);
+        musicMenu.setVolume(musicVolume); // misma referencia, misma música
         musicMap1.setLooping(true);
         musicMap1.setVolume(musicVolume);
 
@@ -58,8 +62,9 @@ public class SoundManager {
     }
 
     // --- Música ---
-    public void playMap1Music() { switchMusic(musicMap1); }
-    public void playMap2Music() { switchMusic(musicMap2); }
+    public void playMenuMusic()  { switchMusic(musicMenu); }
+    public void playMap1Music()  { switchMusic(musicMap1); }
+    public void playMap2Music()  { switchMusic(musicMap2); }
 
     private void switchMusic(Music newMusic) {
         if (currentMusic == newMusic && currentMusic.isPlaying()) return;
@@ -123,6 +128,7 @@ public class SoundManager {
     public void setMusicVolume(float v) {
         musicVolume = v;
         if (musicMap1 != null) musicMap1.setVolume(v);
+        if (musicMenu != null) musicMenu.setVolume(v);
     }
 
     public void setSfxVolume(float v) {
@@ -131,6 +137,7 @@ public class SoundManager {
 
     public void dispose() {
         if (musicMap1 != null) musicMap1.dispose();
+        if (musicMenu != null) musicMenu.dispose();
         // musicMap2 apunta al mismo objeto que musicMap1, no hacer dispose dos veces
         sfxAttack.dispose();      sfxJump.dispose();
         sfxLand.dispose();        sfxDash.dispose();

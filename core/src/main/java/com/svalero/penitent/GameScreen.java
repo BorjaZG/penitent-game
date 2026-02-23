@@ -33,7 +33,7 @@ public class GameScreen implements Screen {
     private static final float MAP2_W = MAP2_TILES_W * TILE_SIZE;
     private static final float VIEW_W = 608f;
     private static final float VIEW_H = 320f;
-    private static final float CAM_LERP = 6f;
+    private static final float CAM_LERP = 3.5f;
 
     private int   currentMap  = 1;
     private float currentMapW = MAP_W;
@@ -54,6 +54,11 @@ public class GameScreen implements Screen {
     private Texture heartFull, heartEmpty;
     private static final int HEART_SIZE   = 34;
     private static final int HEART_MARGIN = 6;
+
+    // Fondo parallax
+    private Texture bgTexture;
+    private boolean hasBg = false;
+    private static final float PARALLAX_FACTOR = 0.3f; // 0=fijo, 1=mismo que cámara
 
     // Flash daño
     private float damageFlashTimer = 0f;
@@ -108,6 +113,14 @@ public class GameScreen implements Screen {
 
         heartFull  = new Texture("hud/heart_full.png");
         heartEmpty = new Texture("hud/heart_empty.png");
+
+        // Fondo parallax (mismo PNG que el menú si existe)
+        try {
+            bgTexture = new Texture("menu_background.png");
+            hasBg = true;
+        } catch (Exception e) {
+            hasBg = false;
+        }
 
         layout = new GlyphLayout();
 
@@ -196,6 +209,21 @@ public class GameScreen implements Screen {
         // Render
         Gdx.gl.glClearColor(0.05f, 0.05f, 0.07f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
+        // Fondo parallax
+        if (hasBg) {
+            batch.setProjectionMatrix(hudCamera.combined);
+            batch.begin();
+            float bgOffsetX = (camera.position.x - VIEW_W / 2f) * PARALLAX_FACTOR;
+            float bgOffsetY = (camera.position.y - VIEW_H / 2f) * PARALLAX_FACTOR * 0.5f;
+            // Repetir horizontalmente si el mapa es más ancho que la pantalla
+            float bgW = VIEW_W + 60;
+            float bgX = -bgOffsetX % bgW - 30;
+            batch.setColor(0.6f, 0.6f, 0.6f, 1f); // oscurecer un poco para no tapar el gameplay
+            batch.draw(bgTexture, bgX, -bgOffsetY, bgW * 2, VIEW_H + 40);
+            batch.setColor(Color.WHITE);
+            batch.end();
+        }
 
         ((currentMap == 1) ? mapRenderer : mapRenderer2).setView(camera);
         ((currentMap == 1) ? mapRenderer : mapRenderer2).render();
@@ -360,5 +388,6 @@ public class GameScreen implements Screen {
         batch.dispose(); player.dispose();
         for (Enemy e : enemies) e.dispose();
         heartFull.dispose(); heartEmpty.dispose();
+        if (hasBg) bgTexture.dispose();
     }
 }

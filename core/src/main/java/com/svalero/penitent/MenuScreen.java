@@ -50,6 +50,9 @@ public class MenuScreen implements Screen {
     private boolean blinkOn    = true;
     private static final float BLINK_RATE = 0.5f;
 
+    // ── Audio ─────────────────────────────────────────────────────────────────
+    private SoundManager sound;
+
     // ── Fondo ─────────────────────────────────────────────────────────────────
     private Texture background;
     private boolean hasBackground = false;
@@ -71,6 +74,11 @@ public class MenuScreen implements Screen {
         } catch (Exception e) {
             hasBackground = false;
         }
+
+        sound = new SoundManager();
+        sound.setMusicVolume(game.getMusicVolume());
+        sound.setSfxVolume(game.getSfxVolume());
+        sound.playMenuMusic();
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -130,10 +138,12 @@ public class MenuScreen implements Screen {
     private void selectCurrent() {
         switch (items[selectedIndex]) {
             case NEW_GAME:
+                sound.stopMusic();
                 game.startNewGame();
                 break;
             case CONTINUE:
                 if (SaveManager.hasSave()) {
+                    sound.stopMusic();
                     slots = SaveManager.loadAll();
                     slotIndex = 0;
                     for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
@@ -272,7 +282,7 @@ public class MenuScreen implements Screen {
         for (int i = 0; i < 2; i++) {
             boolean sel = (i == optionIndex);
             FontManager.menu.setColor(sel ? new Color(0.95f, 0.8f, 0.2f, 1f)
-                                          : new Color(0.75f, 0.65f, 0.65f, 1f));
+                : new Color(0.75f, 0.65f, 0.65f, 1f));
             String line = optLabels[i] + ":  < " + Math.round(optValues[i] * 100) + "% >";
             layout.setText(FontManager.menu, line);
             FontManager.menu.draw(batch, line, cx - layout.width / 2f, startY - i * 50);
@@ -287,7 +297,7 @@ public class MenuScreen implements Screen {
 
     private void drawVolumeBar(float cx, float y, float value, boolean active) {
         FontManager.small.setColor(active ? new Color(0.95f, 0.75f, 0.1f, 1f)
-                                          : new Color(0.5f, 0.5f, 0.5f, 1f));
+            : new Color(0.5f, 0.5f, 0.5f, 1f));
         StringBuilder bar = new StringBuilder("|");
         int filled = Math.round(value * 20);
         for (int k = 0; k < 20; k++) bar.append(k < filled ? "\u2588" : "\u2591");
@@ -348,12 +358,12 @@ public class MenuScreen implements Screen {
             SaveManager.SaveData data = (slots != null) ? slots[i] : null;
 
             FontManager.menu.setColor(sel ? new Color(0.95f, 0.8f, 0.2f, 1f)
-                                          : new Color(0.6f, 0.55f, 0.55f, 1f));
+                : new Color(0.6f, 0.55f, 0.55f, 1f));
             FontManager.menu.draw(batch, "RANURA " + (i + 1), sx, startY - i * spacing);
 
             if (data != null) {
                 FontManager.small.setColor(sel ? new Color(1f, 0.9f, 0.6f, 1f)
-                                               : new Color(0.7f, 0.65f, 0.6f, 1f));
+                    : new Color(0.7f, 0.65f, 0.6f, 1f));
                 String hearts = "";
                 for (int h = 0; h < 3; h++) hearts += (h < data.health) ? "\u2665 " : "\u2661 ";
                 FontManager.small.draw(batch,
@@ -402,5 +412,6 @@ public class MenuScreen implements Screen {
     public void dispose() {
         batch.dispose();
         if (hasBackground) background.dispose();
+        if (sound != null) sound.dispose();
     }
 }
