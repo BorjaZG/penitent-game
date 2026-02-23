@@ -32,13 +32,17 @@ public class MenuScreen implements Screen {
     private int selectedIndex = 0;
 
     // Submenú activo
-    private enum SubMenu { NONE, OPTIONS, CREDITS }
+    private enum SubMenu { NONE, OPTIONS, CREDITS, SAVE_SELECT }
     private SubMenu activeSubMenu = SubMenu.NONE;
 
     // Opciones: volumen música y sfx
     private float musicVolume = 0.5f;
     private float sfxVolume   = 0.8f;
     private int   optionIndex = 0; // 0=música, 1=sfx
+
+    // Selección de slot
+    private int slotIndex = 0;
+    private SaveManager.SaveData[] slots;
 
     // Animación cursor (parpadeo)
     private float blinkTimer   = 0f;
@@ -103,6 +107,7 @@ public class MenuScreen implements Screen {
         if (activeSubMenu == SubMenu.NONE)    drawMainMenu();
         else if (activeSubMenu == SubMenu.OPTIONS) drawOptions();
         else if (activeSubMenu == SubMenu.CREDITS) drawCredits();
+        else if (activeSubMenu == SubMenu.SAVE_SELECT) drawSaveSelect();
 
         batch.end();
     }
@@ -112,6 +117,8 @@ public class MenuScreen implements Screen {
             handleMainMenuInput();
         } else if (activeSubMenu == SubMenu.OPTIONS) {
             handleOptionsInput(dt);
+        } else if (activeSubMenu == SubMenu.SAVE_SELECT) {
+            handleSaveSelectInput();
         } else {
             // Créditos: cualquier tecla para volver
             if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) ||
@@ -144,7 +151,15 @@ public class MenuScreen implements Screen {
                 game.startNewGame();
                 break;
             case CONTINUE:
-                if (SaveManager.hasSave()) game.continueGame();
+                if (SaveManager.hasSave()) {
+                    slots = SaveManager.loadAll();
+                    slotIndex = 0;
+                    // Apuntar al primer slot con datos
+                    for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
+                        if (slots[i] != null) { slotIndex = i; break; }
+                    }
+                    activeSubMenu = SubMenu.SAVE_SELECT;
+                }
                 break;
             case OPTIONS:
                 activeSubMenu = SubMenu.OPTIONS;
@@ -256,7 +271,7 @@ public class MenuScreen implements Screen {
         for (int i = 0; i < 2; i++) {
             boolean sel = (i == optionIndex);
             menuFont.setColor(sel ? new Color(0.95f, 0.8f, 0.2f, 1f)
-                                  : new Color(0.75f, 0.65f, 0.65f, 1f));
+                : new Color(0.75f, 0.65f, 0.65f, 1f));
 
             String line = optLabels[i] + ":  < " + Math.round(optValues[i] * 100) + "% >";
             layout.setText(menuFont, line);
@@ -280,12 +295,12 @@ public class MenuScreen implements Screen {
 
         // Fondo barra
         batch.setColor(active ? new Color(0.3f, 0.25f, 0.1f, 1f)
-                              : new Color(0.2f, 0.2f, 0.2f, 1f));
+            : new Color(0.2f, 0.2f, 0.2f, 1f));
         // Dibujamos un rectángulo con la textura blanca del font (truco libGDX)
         // Como no tenemos ShapeRenderer, usamos un rectángulo de color en el batch
         // Para esto necesitaríamos un pixel blanco, lo hacemos con texto
         smallFont.setColor(active ? new Color(0.95f, 0.75f, 0.1f, 1f)
-                                  : new Color(0.5f, 0.5f, 0.5f, 1f));
+            : new Color(0.5f, 0.5f, 0.5f, 1f));
         StringBuilder bar = new StringBuilder("|");
         int filled = Math.round(value * 20);
         for (int k = 0; k < 20; k++) bar.append(k < filled ? "█" : "░");
@@ -328,6 +343,70 @@ public class MenuScreen implements Screen {
 
         smallFont.setColor(new Color(0.5f, 0.45f, 0.45f, 1f));
         String hint = "ENTER / ESC para volver";
+        layout.setText(smallFont, hint);
+        smallFont.draw(batch, hint, centerX - layout.width / 2f, 20);
+    }
+
+    private void handleSaveSelectInput() {
+        int maxSlots = SaveManager.getMaxSlots();
+        if (Gdx.input.isKeyJustPressed(Input.Keys.UP) || Gdx.input.isKeyJustPressed(Input.Keys.W))
+            slotIndex = (slotIndex - 1 + maxSlots) % maxSlots;
+        if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
+            slotIndex = (slotIndex + 1) % maxSlots;
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
+            if (slots[slotIndex] != null) game.continueGame(slotIndex);
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) || Gdx.input.isKeyJustPressed(Input.Keys.BACKSPACE))
+            activeSubMenu = SubMenu.NONE;
+    }
+
+    private void drawSaveSelect() {
+        float centerX = VIEW_W / 2f;
+
+        titleFont.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
+        layout.setText(titleFont, "CONTINUAR");
+        titleFont.draw(batch, "CONTINUAR", centerX - layout.width / 2f, VIEW_H - 40);
+
+        float startY = VIEW_H / 2f + 55;
+        float spacing = 60f;
+
+        for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
+            boolean sel  = (i == slotIndex);
+            SaveManager.SaveData data = slots[i];
+
+            // Marco del slot
+            menuFont.setColor(sel ? new Color(0.95f, 0.8f, 0.2f, 1f)
+                : new Color(0.6f, 0.55f, 0.55f, 1f));
+
+            String slotLabel = "RANURA " + (i + 1);
+            layout.setText(menuFont, slotLabel);
+            float sx = centerX - 160;
+            menuFont.draw(batch, slotLabel, sx, startY - i * spacing);
+
+            if (data != null) {
+                // Datos de la partida
+                smallFont.setColor(sel ? new Color(1f, 0.9f, 0.6f, 1f)
+                    : new Color(0.7f, 0.65f, 0.6f, 1f));
+                // Corazones
+                String hearts = "";
+                for (int h = 0; h < 3; h++) hearts += (h < data.health) ? "♥ " : "♡ ";
+                smallFont.draw(batch, data.zoneName + "   " + hearts, sx + 10, startY - i * spacing - 20);
+                smallFont.draw(batch, data.timestamp, sx + 10, startY - i * spacing - 36);
+            } else {
+                smallFont.setColor(new Color(0.4f, 0.4f, 0.4f, 1f));
+                smallFont.draw(batch, "— Vacía —", sx + 10, startY - i * spacing - 22);
+            }
+
+            // Cursor
+            if (sel && blinkOn && data != null) {
+                smallFont.setColor(new Color(0.95f, 0.8f, 0.2f, 1f));
+                smallFont.draw(batch, ">", sx - 18, startY - i * spacing);
+            }
+        }
+
+        smallFont.setColor(new Color(0.5f, 0.45f, 0.45f, 1f));
+        String hint = "↑↓ Navegar   ENTER Cargar   ESC Volver";
         layout.setText(smallFont, hint);
         smallFont.draw(batch, hint, centerX - layout.width / 2f, 20);
     }

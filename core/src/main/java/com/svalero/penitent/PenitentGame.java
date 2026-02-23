@@ -23,9 +23,17 @@ public class PenitentGame extends Game {
         setScreen(new GameScreen(this, null));
     }
 
-    public void continueGame() {
-        SaveManager.SaveData data = SaveManager.load();
+    public void continueGame(int slot) {
+        SaveManager.SaveData data = SaveManager.load(slot);
         setScreen(new GameScreen(this, data));
+    }
+
+    // Sobrecarga por compatibilidad (carga el primer slot disponible)
+    public void continueGame() {
+        for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
+            SaveManager.SaveData data = SaveManager.load(i);
+            if (data != null) { setScreen(new GameScreen(this, data)); return; }
+        }
     }
 
     public float getMusicVolume() { return musicVolume; }
