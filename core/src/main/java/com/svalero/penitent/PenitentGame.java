@@ -7,11 +7,11 @@ public class PenitentGame extends Game {
     private float musicVolume = 0.5f;
     private float sfxVolume   = 0.8f;
 
-    // Referencia al SoundManager activo (para ajustar volumen desde el menú)
     private SoundManager activeSoundManager;
 
     @Override
     public void create() {
+        FontManager.load();   // ← carga Cinzel antes de cualquier pantalla
         showMenu();
     }
 
@@ -26,14 +26,6 @@ public class PenitentGame extends Game {
     public void continueGame(int slot) {
         SaveManager.SaveData data = SaveManager.load(slot);
         setScreen(new GameScreen(this, data));
-    }
-
-    // Sobrecarga por compatibilidad (carga el primer slot disponible)
-    public void continueGame() {
-        for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
-            SaveManager.SaveData data = SaveManager.load(i);
-            if (data != null) { setScreen(new GameScreen(this, data)); return; }
-        }
     }
 
     public float getMusicVolume() { return musicVolume; }
@@ -55,6 +47,7 @@ public class PenitentGame extends Game {
 
     @Override
     public void dispose() {
+        FontManager.dispose();
         super.dispose();
     }
 }
