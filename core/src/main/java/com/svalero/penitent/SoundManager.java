@@ -10,7 +10,8 @@ public class SoundManager {
     private Music musicMap1;
     private Music musicMap2;
     private Music currentMusic;
-    private static final float MUSIC_VOLUME = 0.5f;
+    private float musicVolume = 0.5f;
+    private float sfxVolume   = 0.8f;
 
     // Sonidos del jugador
     private Sound sfxAttack;
@@ -39,7 +40,7 @@ public class SoundManager {
         musicMap1 = Gdx.audio.newMusic(Gdx.files.internal("audio/music.ogg"));
         musicMap2 = musicMap1; // misma referencia, misma música
         musicMap1.setLooping(true);
-        musicMap1.setVolume(MUSIC_VOLUME);
+        musicMap1.setVolume(musicVolume);
 
         // Sonidos jugador
         sfxAttack      = Gdx.audio.newSound(Gdx.files.internal("audio/attack.ogg"));
@@ -117,6 +118,15 @@ public class SoundManager {
         } else {
             enemyStepTimer = 0f;
         }
+    }
+
+    public void setMusicVolume(float v) {
+        musicVolume = v;
+        if (musicMap1 != null) musicMap1.setVolume(v);
+    }
+
+    public void setSfxVolume(float v) {
+        sfxVolume = v;
     }
 
     public void dispose() {
