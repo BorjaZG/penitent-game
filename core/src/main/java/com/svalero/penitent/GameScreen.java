@@ -70,16 +70,18 @@ public class GameScreen implements Screen {
     private GlyphLayout layout;
 
     // Punto de guardado más reciente (para el checkpoint)
-    private int   saveMap = 1;
-    private float saveX   = 200f;
-    private float saveY   = 32f;
+    private int   saveMap    = 1;
+    private float saveX      = 200f;
+    private float saveY      = 32f;
+    private int   saveHealth = 3;
 
     public GameScreen(PenitentGame game, SaveManager.SaveData saveData) {
         this.game = game;
         if (saveData != null) {
-            saveMap = saveData.map;
-            saveX   = saveData.playerX;
-            saveY   = saveData.playerY;
+            saveMap    = saveData.map;
+            saveX      = saveData.playerX;
+            saveY      = saveData.playerY;
+            saveHealth = saveData.health;
         }
     }
 
@@ -117,12 +119,14 @@ public class GameScreen implements Screen {
             currentMap  = 2; currentMapW = MAP2_W;
             spawnPlayer(saveX, saveY, collisionLayer2);
             player.mapMinX = 0f; player.mapMaxX = MAP2_W + 50f;
+            player.setHealth(saveHealth);
             spawnEnemiesMap2();
             sound.playMap2Music();
         } else {
             currentMap  = 1; currentMapW = MAP_W;
             spawnPlayer(saveX, saveY, collisionLayer);
             player.mapMinX = 0f; player.mapMaxX = MAP_W + 50f;
+            player.setHealth(saveHealth);
             spawnEnemiesMap1();
             sound.playMap1Music();
         }
@@ -224,11 +228,11 @@ public class GameScreen implements Screen {
             Rectangle enemyBounds = enemy.getBounds();
 
             if (player.isAttacking() && attackRange.overlaps(enemyBounds)
-                    && !hitThisAttack.contains(enemy)) {
+                && !hitThisAttack.contains(enemy)) {
                 enemy.hit(); hitThisAttack.add(enemy);
             }
             if (enemy.isAttackActive() && enemy.getAttackBounds().overlaps(playerBounds)
-                    && !player.isHit()) {
+                && !player.isHit()) {
                 player.takeHit(enemy.x); damageFlashTimer = DAMAGE_FLASH_DURATION;
             }
             if (playerBounds.overlaps(enemyBounds) && !player.isAttacking() && !player.isHit()) {
@@ -248,7 +252,7 @@ public class GameScreen implements Screen {
         // Indicador de mapa
         font.getData().setScale(0.9f);
         font.setColor(new Color(0.7f, 0.6f, 0.6f, 0.8f));
-        font.draw(batch, "Zona " + currentMap, VIEW_W - 80, VIEW_H - 12);
+        font.draw(batch, SaveManager.getZoneName(currentMap), VIEW_W - 120, VIEW_H - 12);
         batch.end();
     }
 
@@ -274,7 +278,8 @@ public class GameScreen implements Screen {
         batch.end();
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.G)) {
-            SaveManager.save(currentMap, player.x, player.y, player.getHealth());
+            // Por ahora siempre guarda en slot 0; en el futuro se puede elegir
+            SaveManager.save(0, currentMap, player.x, player.y, player.getHealth());
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
             sound.stopMusic();

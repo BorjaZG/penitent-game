@@ -294,6 +294,7 @@ public class Player {
     public boolean isHit()        { return hit; }
     public int getHealth()        { return currentHealth; }
     public int getMaxHealth()     { return maxHealth; }
+    public void setHealth(int h)  { currentHealth = Math.max(1, Math.min(h, maxHealth)); }
     public boolean isAttacking()  { return attacking; }
     public boolean isAlive()      { return alive; }
     public float getX()           { return x; }
