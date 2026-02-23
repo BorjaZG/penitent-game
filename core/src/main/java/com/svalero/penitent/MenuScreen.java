@@ -40,7 +40,7 @@ public class MenuScreen implements Screen {
     private float sfxVolume   = 0.8f;
     private int   optionIndex = 0;
 
-    // ── Selección de slot ─────────────────────────────────────────────────────
+    // ── Selección de slot (CONTINUAR) ─────────────────────────────────────────
     private int slotIndex       = 0;
     private SaveManager.SaveData[] slots;
     private boolean confirmDelete = false;
@@ -78,7 +78,7 @@ public class MenuScreen implements Screen {
         sound = new SoundManager();
         sound.setMusicVolume(game.getMusicVolume());
         sound.setSfxVolume(game.getSfxVolume());
-        sound.playMenuMusic();
+        sound.playMenuMusic(); // suena desde el inicio y no para hasta entrar al juego
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -138,12 +138,14 @@ public class MenuScreen implements Screen {
     private void selectCurrent() {
         switch (items[selectedIndex]) {
             case NEW_GAME:
+                // Parar música JUSTO antes de entrar al juego, no antes
                 sound.stopMusic();
                 game.startNewGame();
                 break;
             case CONTINUE:
                 if (SaveManager.hasSave()) {
-                    sound.stopMusic();
+                    // BUG 1 FIX: NO parar la música aquí
+                    // La música del menú sigue sonando en SAVE_SELECT
                     slots = SaveManager.loadAll();
                     slotIndex = 0;
                     for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
@@ -176,6 +178,7 @@ public class MenuScreen implements Screen {
         if (optionIndex == 0) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.RIGHT)) musicVolume = Math.min(1f, musicVolume + step);
             if (Gdx.input.isKeyJustPressed(Input.Keys.LEFT))  musicVolume = Math.max(0f, musicVolume - step);
+            sound.setMusicVolume(musicVolume);
             game.setMusicVolume(musicVolume);
         } else {
             if (Gdx.input.isKeyJustPressed(Input.Keys.RIGHT)) sfxVolume = Math.min(1f, sfxVolume + step);
@@ -190,7 +193,6 @@ public class MenuScreen implements Screen {
     private void handleSaveSelectInput() {
         int maxSlots = SaveManager.getMaxSlots();
 
-        // Esperando confirmación de borrado
         if (confirmDelete) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.Y) || Gdx.input.isKeyJustPressed(Input.Keys.S)) {
                 SaveManager.deleteSlot(slotIndex);
@@ -198,9 +200,7 @@ public class MenuScreen implements Screen {
                 confirmDelete = false;
                 if (!SaveManager.hasSave()) activeSubMenu = SubMenu.NONE;
             }
-            if (Gdx.input.isKeyJustPressed(Input.Keys.N) ||
-                Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) ||
-                Gdx.input.isKeyJustPressed(Input.Keys.BACKSPACE)) {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.N) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
                 confirmDelete = false;
             }
             return;
@@ -211,15 +211,20 @@ public class MenuScreen implements Screen {
         if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
             slotIndex = (slotIndex + 1) % maxSlots;
 
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-            if (slots != null && slots[slotIndex] != null)
-                game.continueGame(slotIndex);
-        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.DEL) || Gdx.input.isKeyJustPressed(Input.Keys.FORWARD_DEL)) {
             if (slots != null && slots[slotIndex] != null)
                 confirmDelete = true;
         }
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
+            if (slots != null && slots[slotIndex] != null) {
+                // Parar música JUSTO antes de entrar al juego
+                sound.stopMusic();
+                game.continueGame(slotIndex);
+            }
+        }
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) || Gdx.input.isKeyJustPressed(Input.Keys.BACKSPACE))
             activeSubMenu = SubMenu.NONE;
     }
 
@@ -306,7 +311,7 @@ public class MenuScreen implements Screen {
         FontManager.small.draw(batch, bar.toString(), cx - layout.width / 2f, y);
     }
 
-    // ── Dibujo: Creditos ─────────────────────────────────────────────────────
+    // ── Dibujo: Créditos ─────────────────────────────────────────────────────
 
     private void drawCredits() {
         float cx = VIEW_W / 2f;
@@ -340,7 +345,7 @@ public class MenuScreen implements Screen {
         FontManager.small.draw(batch, "ENTER / ESC para volver", cx - layout.width / 2f, 20);
     }
 
-    // ── Dibujo: Selección de slot ─────────────────────────────────────────────
+    // ── Dibujo: Selección de slot (CONTINUAR) ────────────────────────────────
 
     private void drawSaveSelect() {
         float cx = VIEW_W / 2f;
