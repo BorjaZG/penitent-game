@@ -45,7 +45,7 @@ public class Player {
     // Hit / invencibilidad
     private boolean hit      = false;
     private float   hitTimer = 0f;
-    private static final float HIT_DURATION = 0.6f; // más corto → más dinámico
+    private static final float HIT_DURATION = 1.5f; // más corto → más dinámico
 
     // Parpadeo durante invencibilidad
     private static final float BLINK_INTERVAL = 0.08f;
@@ -277,19 +277,18 @@ public class Player {
         else             batch.draw(frame, drawX + FRAME_W, drawY, -FRAME_W, FRAME_H);
     }
 
-    public void takeHit(float enemyX) {
+    public void takeHit(float enemyX, int damage) {
         if (hit || dying) return;
         hit = true; hitTimer = HIT_DURATION;
         eventHit = true;
         blinkTimer = BLINK_INTERVAL; blinkVisible = true;
-        currentHealth--;
-        // Knockback alejándose del enemigo
+        currentHealth = Math.max(0, currentHealth - damage);
         knockbackVelX = (x > enemyX) ? KNOCKBACK_FORCE : -KNOCKBACK_FORCE;
         if (currentHealth <= 0) kill();
     }
 
-    // Sobrecarga sin knockback por compatibilidad
-    public void takeHit() { takeHit(x); }
+    public void takeHit(float enemyX) { takeHit(enemyX, 1); }
+    public void takeHit()             { takeHit(x, 1); }
 
     public boolean isHit()        { return hit; }
     public int getHealth()        { return currentHealth; }

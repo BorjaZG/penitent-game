@@ -30,8 +30,8 @@ public class Enemy {
     private static final int   TILE_SIZE = 32;
 
     // IA
-    private static final float CHASE_START_RANGE  = 250f; // empieza a perseguir
-    private static final float CHASE_STOP_RANGE   = 380f; // deja de perseguir (leash)
+    private static final float CHASE_START_RANGE  = 200f; // empieza a perseguir
+    private static final float CHASE_STOP_RANGE   = 280f; // deja de perseguir (leash)
     private static final float ATTACK_RANGE       = 55f;
     private static final float ATTACK_COOLDOWN    = 3f;
     private float attackCooldownTimer = 0f;
