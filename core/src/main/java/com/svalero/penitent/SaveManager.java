@@ -82,6 +82,7 @@ public class SaveManager {
         switch (map) {
             case 1: return "Las Entrañas";
             case 2: return "El Osario";
+            case 3: return "Las Catacumbas";
             default: return "Zona " + map;
         }
     }

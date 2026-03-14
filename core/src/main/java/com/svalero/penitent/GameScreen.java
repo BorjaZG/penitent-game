@@ -24,41 +24,71 @@ public class GameScreen implements Screen {
 
     private final PenitentGame game;
 
+    // ── Cámara / tamaños ───────────────────────────────────────────────────────
     private OrthographicCamera camera;
-    private static final int   TILE_SIZE    = 32;
-    private static final int   MAP_TILES_W  = 38;
-    private static final int   MAP_TILES_H  = 20;
-    private static final float MAP_W        = MAP_TILES_W * TILE_SIZE;
-    private static final float MAP_H        = MAP_TILES_H * TILE_SIZE;
-    private static final int   MAP2_TILES_W = 39;
-    private static final float MAP2_W       = MAP2_TILES_W * TILE_SIZE;
-    private static final float VIEW_W       = 608f;
-    private static final float VIEW_H       = 320f;
-    private static final float CAM_LERP     = 3.5f;
+    private static final int   TILE      = 32;
+    private static final float VIEW_W    = 608f;
+    private static final float VIEW_H    = 320f;
+    private static final float CAM_LERP  = 3.5f;
+
+    // Dimensiones por mapa
+    private static final float MAP1_W  = 38 * TILE;   // 1216
+    private static final float MAP1_H  = 20 * TILE;   // 640
+    private static final float MAP2_W  = 39 * TILE;   // 1248
+    private static final float MAP2_H  = 20 * TILE;
+    private static final float MAP3_W = 42 * TILE;  // 1344px   // 1344
+    private static final float MAP3_H = 25 * TILE;  // 800px  // 800
 
     private int   currentMap  = 1;
-    private float currentMapW = MAP_W;
+    private float currentMapW = MAP1_W;
+    private float currentMapH = MAP1_H;
     private float camTargetX, camTargetY;
 
-    private TiledMap tiledMap, tiledMap2;
-    private OrthogonalTiledMapRenderer mapRenderer, mapRenderer2;
-    private TiledMapTileLayer collisionLayer, collisionLayer2;
+    // ── Mapas Tiled ───────────────────────────────────────────────────────────
+    private TiledMap map1, map2, map3;
+    private OrthogonalTiledMapRenderer rend1, rend2, rend3;
+    private TiledMapTileLayer col1, col2, col3;
 
+    // ── Sprites / batch ────────────────────────────────────────────────────────
     private SpriteBatch batch;
     private Player player;
-    private List<Enemy> enemies       = new ArrayList<>();
-    private Set<Enemy>  hitThisAttack = new HashSet<>();
-    private boolean wasAttacking      = false;
 
-    // HUD
-    private OrthographicCamera hudCamera;
+    // ── Enemigos (Enemy genérico) por mapa ────────────────────────────────────
+    private List<Enemy> enemiesMap1 = new ArrayList<>();
+    private List<Enemy> enemiesMap2 = new ArrayList<>();
+    // Mapa 3 solo tiene BatEnemy
+    private boolean pendingResetMap1 = false;
+    private boolean pendingResetMap2 = false;
+
+    // ── Bats (mapa 3) ─────────────────────────────────────────────────────────
+    private List<BatEnemy> batsMap3 = new ArrayList<>();
+    private List<SkeletonEnemy> skeletonsMap3 = new ArrayList<>();
+    private boolean pendingResetMap3 = false;
+
+    // ── Checkpoints ───────────────────────────────────────────────────────────
+    // Mapa 1: posición original
+    // Mapa 2: reubicado a la derecha del XXXXXXXX central (x=672, y=224)
+    // Mapa 3: al fondo derecha
+    private List<Checkpoint> cpMap1 = new ArrayList<>();
+    private List<Checkpoint> cpMap2 = new ArrayList<>();
+    private List<Checkpoint> cpMap3 = new ArrayList<>();
+
+    private float checkpointToastTimer = 0f;
+    private static final float CP_TOAST_DUR = 3f;
+
+    // ── HUD ────────────────────────────────────────────────────────────────────
+    private OrthographicCamera hudCam;
     private Texture heartFull, heartEmpty;
-    private static final int HEART_SIZE   = 34;
-    private static final int HEART_MARGIN = 6;
+    private static final int HEART_SZ  = 34;
+    private static final int HEART_GAP = 6;
 
-    // Flash daño
-    private float damageFlashTimer = 0f;
-    private static final float DAMAGE_FLASH_DURATION = 0.15f;
+    // ── Flash de daño ─────────────────────────────────────────────────────────
+    private float damageFlash = 0f;
+    private static final float FLASH_DUR = 0.15f;
+
+    // ── Combate ───────────────────────────────────────────────────────────────
+    private Set<Object> hitThisAttack = new HashSet<>();
+    private boolean wasAttacking = false;
 
     // ── Fade ──────────────────────────────────────────────────────────────────
     private enum FadeState { NONE, FADE_OUT, FADE_IN }
@@ -66,27 +96,17 @@ public class GameScreen implements Screen {
     private float     fadeAlpha = 1f;
     private static final float FADE_SPEED = 2.5f;
     private Runnable  fadeCallback = null;
-    private Texture   fadeTexture;
+    private Texture   fadeTex;
 
-    // Audio
+    // ── Audio ──────────────────────────────────────────────────────────────────
     private SoundManager sound;
 
-    // Game Over / Pausa
+    // ── Estado ────────────────────────────────────────────────────────────────
     private boolean gameOver = false;
     private boolean paused   = false;
     private GlyphLayout layout;
 
-    // ── Submenú de selección de ranura al guardar ─────────────────────────────
-    private enum PauseSubMenu { NONE, SAVE_SLOT_SELECT, SAVE_OVERWRITE_CONFIRM }
-    private PauseSubMenu pauseSubMenu    = PauseSubMenu.NONE;
-    private int          saveSlotIndex  = 0;           // ranura seleccionada
-    private SaveManager.SaveData[] saveSlots;          // estado actual de ranuras
-
-    // Confirmación de guardado (toast)
-    private float saveConfirmTimer = 0f;
-    private static final float SAVE_CONFIRM_DURATION = 2.5f;
-
-    // Punto de guardado
+    // ── Save data de inicio ────────────────────────────────────────────────────
     private int   saveMap    = 1;
     private float saveX      = 200f;
     private float saveY      = 32f;
@@ -94,131 +114,139 @@ public class GameScreen implements Screen {
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    public GameScreen(PenitentGame game, SaveManager.SaveData saveData) {
+    public GameScreen(PenitentGame game, SaveManager.SaveData data) {
         this.game = game;
-        if (saveData != null) {
-            saveMap    = saveData.map;
-            saveX      = saveData.playerX;
-            saveY      = saveData.playerY;
-            saveHealth = saveData.health;
+        if (data != null) {
+            saveMap    = data.map;
+            saveX      = data.playerX;
+            saveY      = data.playerY;
+            saveHealth = data.health;
         }
     }
+
+    // ── show ──────────────────────────────────────────────────────────────────
 
     @Override
     public void show() {
         camera = new OrthographicCamera();
         camera.setToOrtho(false, VIEW_W, VIEW_H);
 
-        tiledMap       = new TmxMapLoader().load("mapa.tmx");
-        mapRenderer    = new OrthogonalTiledMapRenderer(tiledMap, 1f);
-        collisionLayer = (TiledMapTileLayer) tiledMap.getLayers().get("suelo");
+        // Cargar los tres mapas
+        map1  = new TmxMapLoader().load("mapa.tmx");
+        rend1 = new OrthogonalTiledMapRenderer(map1, 1f);
+        col1  = (TiledMapTileLayer) map1.getLayers().get("suelo");
 
-        tiledMap2       = new TmxMapLoader().load("mapa_2.tmx");
-        mapRenderer2    = new OrthogonalTiledMapRenderer(tiledMap2, 1f);
-        collisionLayer2 = (TiledMapTileLayer) tiledMap2.getLayers().get("suelo");
+        map2  = new TmxMapLoader().load("mapa_2.tmx");
+        rend2 = new OrthogonalTiledMapRenderer(map2, 1f);
+        col2  = (TiledMapTileLayer) map2.getLayers().get("suelo");
 
-        batch = new SpriteBatch();
+        map3  = new TmxMapLoader().load("mapa_3.tmx");
+        rend3 = new OrthogonalTiledMapRenderer(map3, 1f);
+        col3  = (TiledMapTileLayer) map3.getLayers().get("suelo");
 
-        hudCamera = new OrthographicCamera();
-        hudCamera.setToOrtho(false, VIEW_W, VIEW_H);
-        hudCamera.update();
+        batch  = new SpriteBatch();
+        hudCam = new OrthographicCamera();
+        hudCam.setToOrtho(false, VIEW_W, VIEW_H);
+        hudCam.update();
 
         heartFull  = new Texture("hud/heart_full.png");
         heartEmpty = new Texture("hud/heart_empty.png");
 
         Pixmap pm = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
-        pm.setColor(Color.BLACK);
-        pm.fill();
-        fadeTexture = new Texture(pm);
+        pm.setColor(Color.BLACK); pm.fill();
+        fadeTex = new Texture(pm);
         pm.dispose();
 
         layout = new GlyphLayout();
-
-        sound = new SoundManager();
+        sound  = new SoundManager();
         sound.setMusicVolume(game.getMusicVolume());
         sound.setSfxVolume(game.getSfxVolume());
 
-        if (saveMap == 2) {
-            currentMap  = 2; currentMapW = MAP2_W;
-            spawnPlayer(saveX, saveY, collisionLayer2);
-            player.mapMinX = 0f; player.mapMaxX = MAP2_W + 50f;
-            player.setHealth(saveHealth);
-            spawnEnemiesMap2();
-            sound.playMap2Music();
-        } else {
-            currentMap  = 1; currentMapW = MAP_W;
-            spawnPlayer(saveX, saveY, collisionLayer);
-            player.mapMinX = 0f; player.mapMaxX = MAP_W + 50f;
-            player.setHealth(saveHealth);
-            spawnEnemiesMap1();
-            sound.playMap1Music();
-        }
+        // Crear enemigos y checkpoints
+        spawnEnemiesMap1();
+        spawnEnemiesMap2();
+        spawnBatsMap3();
+        spawnSkeletonsMap3();
+
+        // ── Checkpoints ──
+        // Mapa 1: zona central
+        cpMap1.add(new Checkpoint(580, 32));
+
+        // Mapa 2: reubicado a la derecha del bloque central (cursor en la foto ~x=672)
+        // El bloque XXXXXXXX en row 13 va de col 16 a 23 (world x 512-736)
+        // Cursor apuntaba a col ~22-23 → x=672, plataforma en y=192+32=224
+        cpMap2.add(new Checkpoint(672, 224));
+
+        // Mapa 3: al fondo derecho (plataforma en col 26-29 row 15, world y=128)
+        cpMap3.add(new Checkpoint(704, 384));
+
+        // Posicionar jugador
+        initPlayer();
 
         camTargetX = player.x;
         camTargetY = player.y;
     }
 
-    // ── Render ────────────────────────────────────────────────────────────────
+    private void initPlayer() {
+        switch (saveMap) {
+            case 3:
+                currentMap  = 3; currentMapW = MAP3_W; currentMapH = MAP3_H;
+                spawnPlayer(saveX, saveY, col3);
+                player.mapMinX = -200f; player.mapMaxX = MAP3_W - 32f;
+                player.setHealth(saveHealth);
+                sound.playMap3Music();
+                break;
+            case 2:
+                currentMap  = 2; currentMapW = MAP2_W; currentMapH = MAP2_H;
+                spawnPlayer(saveX, saveY, col2);
+                player.mapMinX = 32f; player.mapMaxX = MAP2_W;
+                player.setHealth(saveHealth);
+                sound.playMap2Music();
+                break;
+            default:
+                currentMap  = 1; currentMapW = MAP1_W; currentMapH = MAP1_H;
+                spawnPlayer(saveX, saveY, col1);
+                player.mapMinX = 0f; player.mapMaxX = MAP1_W + 200f;
+                player.setHealth(saveHealth);
+                sound.playMap1Music();
+                break;
+        }
+    }
+
+    // ── render ────────────────────────────────────────────────────────────────
 
     @Override
     public void render(float dt) {
         dt = Math.min(dt, 0.05f);
 
-        // Tick fade SIEMPRE antes de cualquier early-return
         tickFade(dt);
 
-        // Input de pausa (bloqueado si hay fade activo)
-        if (fadeState == FadeState.NONE && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            if (paused && pauseSubMenu != PauseSubMenu.NONE) {
-                // ESC dentro de submenú de pausa: volver a pausa principal
-                pauseSubMenu = PauseSubMenu.NONE;
-            } else {
-                paused = !paused;
-                if (!paused) pauseSubMenu = PauseSubMenu.NONE;
-            }
-        }
+        if (fadeState == FadeState.NONE && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
+            paused = !paused;
 
         if (paused)  { drawPause();    drawFade(); return; }
         if (gameOver){ drawGameOver(); drawFade(); return; }
         if (!player.isAlive()) { gameOver = true; return; }
 
-        // Lógica de juego (bloqueada durante fade out)
         if (fadeState != FadeState.FADE_OUT) {
             player.update(dt);
             processSoundEvents(dt);
-
-            // BUG 3 FIX: acumular un único OR de todos los enemigos en movimiento
-            // y llamar a updateEnemySteps UNA sola vez con ese valor
-            boolean anyEnemyMoving = false;
-            for (Enemy e : enemies) {
-                e.setPlayerPosition(player.x, player.y);
-                e.update(dt);
-                if (e.eventDeath)       { sound.playEnemyDeath();  e.eventDeath = false; }
-                if (e.eventAttackStart) { sound.playEnemyAttack(); e.eventAttackStart = false; }
-                if (e.eventMoving && e.isAlive() && !e.isDying()) anyEnemyMoving = true;
-            }
-            sound.updateEnemySteps(dt, anyEnemyMoving); // ← una sola llamada
-
+            updateEnemies(dt);
             checkCombat();
+            checkCheckpoints(dt);
         }
 
-        // Trigger cambio de mapa
-        if (fadeState == FadeState.NONE) {
-            if (currentMap == 1 && player.x > currentMapW - 10)
-                startFade(this::switchToMap2);
-            if (currentMap == 2 && player.x < 10)
-                startFade(this::switchToMap1);
-        }
+        if (fadeState == FadeState.NONE) checkMapTransitions();
 
         if (wasAttacking && !player.isAttacking()) hitThisAttack.clear();
         wasAttacking = player.isAttacking();
 
-        if (damageFlashTimer > 0) damageFlashTimer -= dt;
-        if (saveConfirmTimer  > 0) saveConfirmTimer  -= dt;
+        if (damageFlash          > 0) damageFlash          -= dt;
+        if (checkpointToastTimer > 0) checkpointToastTimer -= dt;
 
         // Cámara
         camTargetX = Math.max(VIEW_W / 2f, Math.min(player.x + Player.HITBOX_W / 2f, currentMapW - VIEW_W / 2f));
-        camTargetY = Math.max(VIEW_H / 2f, Math.min(player.y + Player.HITBOX_H / 2f, MAP_H - VIEW_H / 2f));
+        camTargetY = Math.max(VIEW_H / 2f, Math.min(player.y + Player.HITBOX_H / 2f, currentMapH - VIEW_H / 2f));
         camera.position.x += (camTargetX - camera.position.x) * CAM_LERP * dt;
         camera.position.y += (camTargetY - camera.position.y) * CAM_LERP * dt;
         camera.update();
@@ -227,23 +255,297 @@ public class GameScreen implements Screen {
         Gdx.gl.glClearColor(0.05f, 0.05f, 0.07f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
-        ((currentMap == 1) ? mapRenderer : mapRenderer2).setView(camera);
-        ((currentMap == 1) ? mapRenderer : mapRenderer2).render();
+        currentRenderer().setView(camera);
+        currentRenderer().render();
 
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         batch.setColor(Color.WHITE);
-        if (damageFlashTimer > 0) batch.setColor(1f, 0.3f, 0.3f, 1f);
+
+        for (Checkpoint cp : currentCheckpoints()) cp.draw(batch);
+        for (Enemy e : currentEnemies())            e.draw(batch);
+        for (BatEnemy b : currentBats())            b.draw(batch);
+        for (SkeletonEnemy s : currentSkeletons())  s.draw(batch);
+
+        if (damageFlash > 0) batch.setColor(1f, 0.3f, 0.3f, 1f);
         player.draw(batch);
         batch.setColor(Color.WHITE);
-        for (Enemy e : enemies) e.draw(batch);
         batch.end();
 
         drawHUD();
         drawFade();
     }
 
-    // ── Fade ──────────────────────────────────────────────────────────────────
+    // ── Transiciones de mapa ──────────────────────────────────────────────────
+
+    private void checkMapTransitions() {
+        float playerCenterX = player.x + Player.HITBOX_W / 2f;
+
+        // ── Mapa 1 → Mapa 2: jugador sale por la derecha ──────────────────
+        // Mapa1 no tiene pared derecha (cols 36-37 vacías), solo suelo en row19
+        // El jugador llega al final del mapa y cruza
+        if (currentMap == 1 && player.x + Player.HITBOX_W >= MAP1_W)
+            startFade(this::switchTo2);
+
+        // ── Mapa 2 → Mapa 1: jugador sale por la izquierda ────────────────
+        // Mapa2 izquierda (cols 0-1) vacía en rows 0-13, sólida abajo
+        if (currentMap == 2 && player.x <= 0)
+            startFade(this::switchTo1);
+
+        // ── Mapa 2 → Mapa 3: jugador cae por el agujero central ───────────
+        // Agujero en row 19 cols 18-20 → world x 576-672px
+        if (currentMap == 2
+            && player.y < -16f
+            && playerCenterX >= 576f
+            && playerCenterX <= 672f)
+            startFade(this::switchTo3);
+
+        // ── Mapa 3: muerte al caer por el abismo inferior ─────────────────
+        if (currentMap == 3 && player.y < -32f)
+            player.kill();
+
+        if (currentMap == 3
+            && player.y + Player.HITBOX_H >= 512f
+            && player.y <= 672f) {
+            player.mapMinX = -200f;  // abre el paso solo en ese rango
+        } else if (currentMap == 3) {
+            player.mapMinX = 32f;    // resto del borde izquierdo bloqueado
+        }
+
+    }
+
+
+    private void switchTo1() {
+        if (pendingResetMap2) { resetEnemiesMap2(); pendingResetMap2 = false; }
+        currentMap = 1; currentMapW = MAP1_W; currentMapH = MAP1_H;
+        player.x = MAP1_W - 80f;   // entra por la derecha del mapa 1
+        player.y = Math.max(player.y, 32f);
+        player.velocityY = 0f;
+        player.collisionLayer = col1;
+        player.mapMinX = 0f;
+        player.mapMaxX = MAP1_W + 200f;  // margen para poder cruzar al mapa 2
+        hitThisAttack.clear();
+        sound.playMap1Music();
+    }
+
+
+    private void switchTo2() {
+        if (pendingResetMap1) { resetEnemiesMap1(); pendingResetMap1 = false; }
+        currentMap = 2; currentMapW = MAP2_W; currentMapH = MAP2_H;
+        player.x = 10f;            // entra por la izquierda del mapa 2
+        player.y = Math.max(player.y, 32f);
+        player.velocityY = 0f;
+        player.collisionLayer = col2;
+        player.mapMinX = 32f;    // margen para poder volver al mapa 1
+        player.mapMaxX = MAP2_W;
+        hitThisAttack.clear();
+        sound.playMap2Music();
+    }
+
+
+    private void switchTo3() {
+        if (pendingResetMap2) { resetEnemiesMap2(); pendingResetMap2 = false; }
+        if (pendingResetMap3) { resetBatsMap3();    pendingResetMap3 = false; }
+        currentMap = 3; currentMapW = MAP3_W; currentMapH = MAP3_H;
+        player.x = MAP3_W / 2f - Player.HITBOX_W / 2f;  // centro del mapa 3
+        player.y = MAP3_H - 64f;   // cima, cae por gravedad
+        player.velocityY = 0f;
+        player.collisionLayer = col3;
+        player.mapMinX = -200f;          // tapa huecos del borde izquierdo
+        player.mapMaxX = MAP3_W - 32f; // tapa huecos del borde derecho
+        hitThisAttack.clear();
+        sound.playMap3Music();
+    }
+
+
+
+    // ── Enemigos ──────────────────────────────────────────────────────────────
+
+    private List<Enemy> currentEnemies() {
+        if (currentMap == 1) return enemiesMap1;
+        if (currentMap == 2) return enemiesMap2;
+        return new ArrayList<>(); // mapa 3 no tiene Enemy genérico
+    }
+
+    private List<SkeletonEnemy> currentSkeletons() {
+        return currentMap == 3 ? skeletonsMap3 : new ArrayList<>();
+    }
+
+    private List<BatEnemy> currentBats() {
+        if (currentMap == 3) return batsMap3;
+        return new ArrayList<>();
+    }
+
+    private List<Checkpoint> currentCheckpoints() {
+        if (currentMap == 1) return cpMap1;
+        if (currentMap == 2) return cpMap2;
+        return cpMap3;
+    }
+
+    private OrthogonalTiledMapRenderer currentRenderer() {
+        if (currentMap == 1) return rend1;
+        if (currentMap == 2) return rend2;
+        return rend3;
+    }
+
+    private void updateEnemies(float dt) {
+        boolean anyMoving = false;
+
+        for (Enemy e : currentEnemies()) {
+            e.setPlayerPosition(player.x, player.y);
+            e.update(dt);
+            if (e.eventDeath)       { sound.playEnemyDeath();  e.eventDeath = false; }
+            if (e.eventAttackStart) { sound.playEnemyAttack(); e.eventAttackStart = false; }
+            if (e.eventMoving && e.isAlive() && !e.isDying()) anyMoving = true;
+        }
+        sound.updateEnemySteps(dt, anyMoving);
+
+        for (BatEnemy b : currentBats()) {
+            b.setPlayerPosition(player.x, player.y);
+            b.update(dt);
+            if (b.eventDeath)       { sound.playEnemyDeath();  b.eventDeath = false; }
+            if (b.eventAttackStart) { sound.playEnemyAttack(); b.eventAttackStart = false; }
+            if (b.eventHit)         { b.eventHit = false; }
+        }
+        for (SkeletonEnemy s : currentSkeletons()) {
+            s.setPlayerPosition(player.x, player.y);
+            s.update(dt);
+            if (s.eventDeath)       { sound.playEnemyDeath();  s.eventDeath = false; }
+            if (s.eventAttackStart) { sound.playEnemyAttack(); s.eventAttackStart = false; }
+        }
+    }
+
+    private void spawnEnemiesMap1() {
+        enemiesMap1.clear();
+        enemiesMap1.add(new Enemy(500, 32, 300,  700, col1));
+        enemiesMap1.add(new Enemy(850, 32, 650, 1050, col1));
+    }
+
+    private void spawnEnemiesMap2() {
+        enemiesMap2.clear();
+        enemiesMap2.add(new Enemy(200, 224, 100, 500, col2));
+        enemiesMap2.add(new Enemy(950, 224, 700, 1150, col2));
+    }
+
+    private void spawnSkeletonsMap3() {
+        for (SkeletonEnemy s : skeletonsMap3) s.dispose();
+        skeletonsMap3.clear();
+        skeletonsMap3.add(new SkeletonEnemy(512,  128, 480,  672, col3));
+    }
+
+    private void resetSkeletonsMap3() {
+        for (SkeletonEnemy s : skeletonsMap3) s.dispose();
+        spawnSkeletonsMap3();
+    }
+
+    private void spawnBatsMap3() {
+        for (BatEnemy b : batsMap3) b.dispose();
+        batsMap3.clear();
+        // Bat 1: cuelga de plataforma izquierda (col 8, row 10 → underside at y=288)
+        //   hangX = centro de la plataforma = 8*32 + 16 = 272
+        //   hangY = parte inferior de la plataforma = 288 (el tile ocupa y=288-320)
+        batsMap3.add(new BatEnemy(272, 288));
+        // Bat 2: cuelga de plataforma central-derecha (col 21, row 13 → underside at y=192)
+        //   hangX = 21*32+16 = 688, hangY = 192
+        batsMap3.add(new BatEnemy(688, 192));
+    }
+
+    private void resetEnemiesMap1() {
+        for (Enemy e : enemiesMap1) e.dispose();
+        spawnEnemiesMap1();
+        if (currentMap == 1) hitThisAttack.clear();
+    }
+
+    private void resetEnemiesMap2() {
+        for (Enemy e : enemiesMap2) e.dispose();
+        spawnEnemiesMap2();
+        if (currentMap == 2) hitThisAttack.clear();
+    }
+
+    private void resetBatsMap3() {
+        spawnBatsMap3();
+        spawnSkeletonsMap3();
+        if (currentMap == 3) hitThisAttack.clear();
+    }
+
+    // ── Checkpoints ───────────────────────────────────────────────────────────
+
+    private void checkCheckpoints(float dt) {
+        for (Checkpoint cp : currentCheckpoints()) {
+            if (cp.update(dt, player.x, player.y))
+                onCheckpointActivated(cp);
+        }
+    }
+
+    private void onCheckpointActivated(Checkpoint cp) {
+        player.setHealth(player.getMaxHealth());
+        SaveManager.save(game.getActiveSlot(), currentMap, cp.x, cp.y, player.getMaxHealth());
+
+        // Reset diferido del mapa actual, inmediato del resto
+        if (currentMap == 1) {
+            resetEnemiesMap2(); resetBatsMap3(); pendingResetMap1 = true;
+        } else if (currentMap == 2) {
+            resetEnemiesMap1(); resetBatsMap3(); pendingResetMap2 = true;
+        } else {
+            resetEnemiesMap1(); resetEnemiesMap2(); pendingResetMap3 = true;
+        }
+        checkpointToastTimer = CP_TOAST_DUR;
+    }
+
+    // ── Combate ───────────────────────────────────────────────────────────────
+
+    private void checkCombat() {
+        if (!player.isAlive()) return;
+        Rectangle pb = player.getBounds();
+        Rectangle ar = player.getAttackRange();
+
+        // Enemy genérico
+        for (Enemy e : currentEnemies()) {
+            if (!e.isAlive() || e.isDying()) continue;
+            Rectangle eb = e.getBounds();
+            if (player.isAttacking() && ar.overlaps(eb) && !hitThisAttack.contains(e)) {
+                e.hit(); hitThisAttack.add(e);
+            }
+            if (e.isAttackActive() && e.getAttackBounds().overlaps(pb) && !player.isHit()) {
+                player.takeHit(e.x); damageFlash = FLASH_DUR;
+            }
+            if (pb.overlaps(eb) && !player.isAttacking() && !player.isHit()) {
+                player.takeHit(e.x); damageFlash = FLASH_DUR;
+            }
+        }
+
+        // Bats
+        for (BatEnemy b : currentBats()) {
+            if (!b.isAlive() || b.isDying()) continue;
+            Rectangle bb = b.getBounds();
+            if (player.isAttacking() && ar.overlaps(bb) && !hitThisAttack.contains(b)) {
+                b.hit(); hitThisAttack.add(b);
+            }
+            if (b.isAttackActive() && b.getAttackBounds().overlaps(pb) && !player.isHit()) {
+                player.takeHit(b.x); damageFlash = FLASH_DUR;
+            }
+            if (!b.isSleeping() && pb.overlaps(bb) && !player.isAttacking() && !player.isHit()) {
+                player.takeHit(b.x); damageFlash = FLASH_DUR;
+            }
+        }
+
+        // Skeletons
+        for (SkeletonEnemy s : currentSkeletons()) {
+            if (!s.isAlive() || s.isDying()) continue;
+            Rectangle sb = s.getBounds();
+            if (player.isAttacking() && ar.overlaps(sb) && !hitThisAttack.contains(s)) {
+                s.hit(); hitThisAttack.add(s);
+            }
+            if (s.isAttackActive() && s.getAttackBounds().overlaps(pb) && !player.isHit()) {
+                player.takeHit(s.x, SkeletonEnemy.DAMAGE); damageFlash = FLASH_DUR;
+            }
+            if (!s.isDying() && pb.overlaps(sb) && !player.isAttacking() && !player.isHit()) {
+                player.takeHit(s.x, SkeletonEnemy.DAMAGE); damageFlash = FLASH_DUR;
+            }
+        }
+    }
+
+    // ── Fade ─────────────────────────────────────────────────────────────────
 
     private void tickFade(float dt) {
         if (fadeState == FadeState.FADE_OUT) {
@@ -261,19 +563,17 @@ public class GameScreen implements Screen {
 
     private void drawFade() {
         if (fadeAlpha <= 0f) return;
-        batch.setProjectionMatrix(hudCamera.combined);
+        batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
         batch.setColor(0f, 0f, 0f, fadeAlpha);
-        batch.draw(fadeTexture, 0, 0, VIEW_W, VIEW_H);
+        batch.draw(fadeTex, 0, 0, VIEW_W, VIEW_H);
         batch.setColor(Color.WHITE);
         batch.end();
     }
 
-    private void startFade(Runnable onBlack) {
+    private void startFade(Runnable cb) {
         if (fadeState != FadeState.NONE) return;
-        fadeState    = FadeState.FADE_OUT;
-        fadeAlpha    = 0f;
-        fadeCallback = onBlack;
+        fadeState = FadeState.FADE_OUT; fadeAlpha = 0f; fadeCallback = cb;
     }
 
     // ── Audio ─────────────────────────────────────────────────────────────────
@@ -287,55 +587,43 @@ public class GameScreen implements Screen {
         sound.updatePlayerSounds(dt, player.eventRunning, player.eventOnGround, player.eventWasOnGround);
     }
 
-    // ── Combate ───────────────────────────────────────────────────────────────
-
-    private void checkCombat() {
-        if (!player.isAlive()) return;
-        Rectangle playerBounds = player.getBounds();
-        Rectangle attackRange  = player.getAttackRange();
-
-        for (Enemy enemy : enemies) {
-            if (!enemy.isAlive() || enemy.isDying()) continue;
-            Rectangle enemyBounds = enemy.getBounds();
-
-            if (player.isAttacking() && attackRange.overlaps(enemyBounds)
-                && !hitThisAttack.contains(enemy)) {
-                enemy.hit();
-                hitThisAttack.add(enemy);
-            }
-            if (enemy.isAttackActive() && enemy.getAttackBounds().overlaps(playerBounds)
-                && !player.isHit()) {
-                player.takeHit(enemy.x);
-                damageFlashTimer = DAMAGE_FLASH_DURATION;
-            }
-            if (playerBounds.overlaps(enemyBounds) && !player.isAttacking() && !player.isHit()) {
-                player.takeHit(enemy.x);
-                damageFlashTimer = DAMAGE_FLASH_DURATION;
-            }
-        }
-    }
-
     // ── HUD ───────────────────────────────────────────────────────────────────
 
     private void drawHUD() {
-        batch.setProjectionMatrix(hudCamera.combined);
+        batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
         batch.setColor(Color.WHITE);
 
         for (int i = 0; i < player.getMaxHealth(); i++) {
-            float hx = 10 + i * (HEART_SIZE + HEART_MARGIN);
-            float hy = VIEW_H - HEART_SIZE - 10;
-            batch.draw(i < player.getHealth() ? heartFull : heartEmpty, hx, hy, HEART_SIZE, HEART_SIZE);
+            float hx = 10 + i * (HEART_SZ + HEART_GAP);
+            float hy = VIEW_H - HEART_SZ - 10;
+            batch.draw(i < player.getHealth() ? heartFull : heartEmpty, hx, hy, HEART_SZ, HEART_SZ);
         }
 
         FontManager.small.setColor(new Color(0.7f, 0.6f, 0.6f, 0.8f));
         FontManager.small.draw(batch, SaveManager.getZoneName(currentMap), VIEW_W - 150, VIEW_H - 12);
 
-        if (saveConfirmTimer > 0) {
-            FontManager.small.setColor(new Color(0.3f, 1f, 0.4f, Math.min(1f, saveConfirmTimer * 2f)));
-            String msg = "Partida guardada correctamente";
-            layout.setText(FontManager.small, msg);
-            FontManager.small.draw(batch, msg, (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 60);
+        // Prompt checkpoint
+        for (Checkpoint cp : currentCheckpoints()) {
+            if (cp.isPlayerInRange()) {
+                FontManager.menu.setColor(new Color(0.95f, 0.85f, 0.4f, 1f));
+                String prompt = "B  -  Rezar";
+                layout.setText(FontManager.menu, prompt);
+                FontManager.menu.draw(batch, prompt, (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 80);
+            }
+        }
+
+        // Toast checkpoint
+        if (checkpointToastTimer > 0) {
+            float alpha = Math.min(1f, checkpointToastTimer * 1.2f);
+            FontManager.menu.setColor(new Color(0.95f, 0.78f, 0.2f, alpha));
+            String msg = "Oracion concedida";
+            layout.setText(FontManager.menu, msg);
+            FontManager.menu.draw(batch, msg, (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 20);
+            FontManager.small.setColor(new Color(0.85f, 0.75f, 0.55f, alpha * 0.8f));
+            String sub = "Partida guardada  -  Vida restaurada";
+            layout.setText(FontManager.small, sub);
+            FontManager.small.draw(batch, sub, (VIEW_W - layout.width) / 2f, VIEW_H / 2f);
         }
         batch.end();
     }
@@ -345,157 +633,30 @@ public class GameScreen implements Screen {
     private void drawPause() {
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-        batch.setProjectionMatrix(hudCamera.combined);
+        batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
         batch.setColor(Color.WHITE);
 
-        switch (pauseSubMenu) {
-            case SAVE_SLOT_SELECT:    drawSaveSlotSelect();    break;
-            case SAVE_OVERWRITE_CONFIRM: drawOverwriteConfirm(); break;
-            default:                  drawPauseMain();         break;
-        }
-
-        batch.end();
-
-        if (fadeState == FadeState.NONE) handlePauseInput();
-    }
-
-    private void drawPauseMain() {
         FontManager.title.setColor(Color.WHITE);
         layout.setText(FontManager.title, "PAUSA");
-        FontManager.title.draw(batch, "PAUSA", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 70);
+        FontManager.title.draw(batch, "PAUSA", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 60);
 
         FontManager.menu.setColor(new Color(0.8f, 0.7f, 0.5f, 1f));
-        String[] opts = { "ESC  -  Continuar", "G  -  Guardar partida", "M  -  Volver al menu" };
+        String[] opts = { "ESC  -  Continuar", "M  -  Volver al menu" };
         for (int i = 0; i < opts.length; i++) {
             layout.setText(FontManager.menu, opts[i]);
-            FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 15 - i * 38);
+            FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - i * 38);
         }
-    }
+        FontManager.small.setColor(new Color(0.5f, 0.45f, 0.45f, 0.8f));
+        String info = "Guardando en RANURA " + (game.getActiveSlot() + 1);
+        layout.setText(FontManager.small, info);
+        FontManager.small.draw(batch, info, (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 100);
+        batch.end();
 
-    private void drawSaveSlotSelect() {
-        float cx = VIEW_W / 2f;
-
-        FontManager.title.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
-        layout.setText(FontManager.title, "GUARDAR EN...");
-        FontManager.title.draw(batch, "GUARDAR EN...", cx - layout.width / 2f, VIEW_H - 40);
-
-        float startY  = VIEW_H / 2f + 55;
-        float spacing = 58f;
-        float sx      = cx - 150;
-
-        for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
-            boolean sel  = (i == saveSlotIndex);
-            SaveManager.SaveData data = (saveSlots != null) ? saveSlots[i] : null;
-
-            FontManager.menu.setColor(sel ? new Color(0.95f, 0.8f, 0.2f, 1f)
-                : new Color(0.6f, 0.55f, 0.55f, 1f));
-            FontManager.menu.draw(batch, "RANURA " + (i + 1), sx, startY - i * spacing);
-
-            if (data != null) {
-                FontManager.small.setColor(sel ? new Color(1f, 0.9f, 0.6f, 1f)
-                    : new Color(0.7f, 0.65f, 0.6f, 1f));
-                String hearts = "";
-                for (int h = 0; h < 3; h++) hearts += (h < data.health) ? "\u2665 " : "\u2661 ";
-                FontManager.small.draw(batch,
-                    data.zoneName + "   " + hearts, sx + 10, startY - i * spacing - 20);
-                FontManager.small.setColor(new Color(0.55f, 0.5f, 0.45f, 1f));
-                FontManager.small.draw(batch, data.timestamp, sx + 10, startY - i * spacing - 36);
-            } else {
-                FontManager.small.setColor(new Color(0.5f, 0.8f, 0.5f, 1f));
-                FontManager.small.draw(batch, "-- Vacia --", sx + 10, startY - i * spacing - 22);
-            }
-
-            if (sel) {
-                FontManager.small.setColor(new Color(0.95f, 0.8f, 0.2f, 1f));
-                FontManager.small.draw(batch, ">", sx - 20, startY - i * spacing);
-            }
+        if (fadeState == FadeState.NONE && Gdx.input.isKeyJustPressed(Input.Keys.M)) {
+            paused = false;
+            startFade(() -> { sound.stopMusic(); game.showMenu(); });
         }
-
-        FontManager.small.setColor(new Color(0.5f, 0.45f, 0.45f, 1f));
-        layout.setText(FontManager.small, "Flechas Navegar   ENTER Guardar   ESC Cancelar");
-        FontManager.small.draw(batch, "Flechas Navegar   ENTER Guardar   ESC Cancelar",
-            cx - layout.width / 2f, 20);
-    }
-
-    private void drawOverwriteConfirm() {
-        float cx = VIEW_W / 2f;
-
-        FontManager.title.setColor(new Color(0.9f, 0.2f, 0.2f, 1f));
-        layout.setText(FontManager.title, "SOBREESCRIBIR?");
-        FontManager.title.draw(batch, "SOBREESCRIBIR?", cx - layout.width / 2f, VIEW_H / 2f + 70);
-
-        FontManager.menu.setColor(new Color(0.9f, 0.8f, 0.6f, 1f));
-        String warn = "RANURA " + (saveSlotIndex + 1) + " ya tiene datos guardados.";
-        layout.setText(FontManager.menu, warn);
-        FontManager.menu.draw(batch, warn, cx - layout.width / 2f, VIEW_H / 2f + 20);
-
-        FontManager.small.setColor(new Color(0.8f, 0.6f, 0.6f, 1f));
-        String warn2 = "Los datos anteriores se perderan.";
-        layout.setText(FontManager.small, warn2);
-        FontManager.small.draw(batch, warn2, cx - layout.width / 2f, VIEW_H / 2f - 5);
-
-        FontManager.menu.setColor(new Color(1f, 0.9f, 0.4f, 1f));
-        layout.setText(FontManager.menu, "S / Y  =  Confirmar");
-        FontManager.menu.draw(batch, "S / Y  =  Confirmar", cx - layout.width / 2f, VIEW_H / 2f - 45);
-
-        FontManager.menu.setColor(new Color(0.7f, 0.65f, 0.65f, 1f));
-        layout.setText(FontManager.menu, "N / ESC  =  Cancelar");
-        FontManager.menu.draw(batch, "N / ESC  =  Cancelar", cx - layout.width / 2f, VIEW_H / 2f - 83);
-    }
-
-    private void handlePauseInput() {
-        switch (pauseSubMenu) {
-
-            case NONE:
-                if (Gdx.input.isKeyJustPressed(Input.Keys.G)) {
-                    // Abrir selección de ranura
-                    saveSlots    = SaveManager.loadAll();
-                    saveSlotIndex = 0;
-                    pauseSubMenu = PauseSubMenu.SAVE_SLOT_SELECT;
-                }
-                if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
-                    paused = false;
-                    startFade(() -> { sound.stopMusic(); game.showMenu(); });
-                }
-                break;
-
-            case SAVE_SLOT_SELECT:
-                if (Gdx.input.isKeyJustPressed(Input.Keys.UP) || Gdx.input.isKeyJustPressed(Input.Keys.W))
-                    saveSlotIndex = (saveSlotIndex - 1 + SaveManager.getMaxSlots()) % SaveManager.getMaxSlots();
-                if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
-                    saveSlotIndex = (saveSlotIndex + 1) % SaveManager.getMaxSlots();
-
-                if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) ||
-                    Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-                    if (SaveManager.hasSlot(saveSlotIndex)) {
-                        // Ranura ocupada → pedir confirmación
-                        pauseSubMenu = PauseSubMenu.SAVE_OVERWRITE_CONFIRM;
-                    } else {
-                        // Ranura vacía → guardar directamente
-                        doSave(saveSlotIndex);
-                    }
-                }
-                break;
-
-            case SAVE_OVERWRITE_CONFIRM:
-                if (Gdx.input.isKeyJustPressed(Input.Keys.Y) ||
-                    Gdx.input.isKeyJustPressed(Input.Keys.S)) {
-                    doSave(saveSlotIndex);
-                }
-                if (Gdx.input.isKeyJustPressed(Input.Keys.N) ||
-                    Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-                    pauseSubMenu = PauseSubMenu.SAVE_SLOT_SELECT;
-                }
-                break;
-        }
-    }
-
-    private void doSave(int slot) {
-        SaveManager.save(slot, currentMap, player.x, player.y, player.getHealth());
-        saveConfirmTimer = SAVE_CONFIRM_DURATION;
-        pauseSubMenu     = PauseSubMenu.NONE;
-        paused           = false;
     }
 
     // ── Game Over ─────────────────────────────────────────────────────────────
@@ -503,7 +664,7 @@ public class GameScreen implements Screen {
     private void drawGameOver() {
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-        batch.setProjectionMatrix(hudCamera.combined);
+        batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
         batch.setColor(Color.WHITE);
 
@@ -512,9 +673,9 @@ public class GameScreen implements Screen {
         FontManager.title.draw(batch, "GAME OVER", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 50);
 
         FontManager.menu.setColor(Color.WHITE);
-        boolean hasSave   = SaveManager.hasSave();
-        String retryLabel = hasSave ? "R  -  Volver al ultimo guardado" : "R  -  Nueva Partida";
-        String[] opts     = { retryLabel, "M  -  Volver al menu" };
+        boolean hasSave   = SaveManager.hasSlot(game.getActiveSlot());
+        String retryLabel = hasSave ? "R  -  Volver al ultimo checkpoint" : "R  -  Nueva Partida";
+        String[] opts = { retryLabel, "M  -  Volver al menu" };
         for (int i = 0; i < opts.length; i++) {
             layout.setText(FontManager.menu, opts[i]);
             FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 10 - i * 35);
@@ -525,52 +686,19 @@ public class GameScreen implements Screen {
             if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
                 startFade(() -> {
                     sound.stopMusic();
-                    if (SaveManager.hasSave()) game.continueGame(0);
-                    else game.startNewGame();
+                    if (SaveManager.hasSlot(game.getActiveSlot())) game.reloadActiveSlot();
+                    else game.startNewGame(game.getActiveSlot());
                 });
             }
-            if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.M))
                 startFade(() -> { sound.stopMusic(); game.showMenu(); });
-            }
         }
     }
 
-    // ── Cambio de mapa ────────────────────────────────────────────────────────
-
-    private void switchToMap1() {
-        currentMap = 1; currentMapW = MAP_W;
-        player.x = MAP_W - 60;
-        player.collisionLayer = collisionLayer;
-        player.mapMinX = 0f; player.mapMaxX = MAP_W + 50f;
-        spawnEnemiesMap1();
-        hitThisAttack.clear();
-        sound.playMap1Music();
-    }
-
-    private void switchToMap2() {
-        currentMap = 2; currentMapW = MAP2_W;
-        player.x = 30;
-        player.collisionLayer = collisionLayer2;
-        player.mapMinX = 0f; player.mapMaxX = MAP2_W + 50f;
-        spawnEnemiesMap2();
-        hitThisAttack.clear();
-        sound.playMap2Music();
-    }
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void spawnPlayer(float x, float y, TiledMapTileLayer layer) {
         player = new Player(x, y, layer);
-    }
-
-    private void spawnEnemiesMap1() {
-        enemies.clear();
-        enemies.add(new Enemy(500, 32, 300, 700, collisionLayer));
-        enemies.add(new Enemy(850, 32, 650, 1050, collisionLayer));
-    }
-
-    private void spawnEnemiesMap2() {
-        enemies.clear();
-        enemies.add(new Enemy(400, 32, 200, 800, collisionLayer2));
-        enemies.add(new Enemy(900, 32, 700, 1150, collisionLayer2));
     }
 
     // ── Ciclo de vida ─────────────────────────────────────────────────────────
@@ -582,14 +710,21 @@ public class GameScreen implements Screen {
 
     @Override
     public void dispose() {
-        if (sound != null)       sound.dispose();
-        if (tiledMap != null)    { tiledMap.dispose();  mapRenderer.dispose();  }
-        if (tiledMap2 != null)   { tiledMap2.dispose(); mapRenderer2.dispose(); }
-        if (batch != null)       batch.dispose();
-        if (player != null)      player.dispose();
-        for (Enemy e : enemies)  e.dispose();
-        if (heartFull != null)   heartFull.dispose();
-        if (heartEmpty != null)  heartEmpty.dispose();
-        if (fadeTexture != null) fadeTexture.dispose();
+        if (sound   != null) sound.dispose();
+        if (map1    != null) { map1.dispose(); rend1.dispose(); }
+        if (map2    != null) { map2.dispose(); rend2.dispose(); }
+        if (map3    != null) { map3.dispose(); rend3.dispose(); }
+        if (batch   != null) batch.dispose();
+        if (player  != null) player.dispose();
+        for (Enemy e  : enemiesMap1)  e.dispose();
+        for (Enemy e  : enemiesMap2)  e.dispose();
+        for (BatEnemy b : batsMap3)         b.dispose();
+        for (SkeletonEnemy s : skeletonsMap3) s.dispose();
+        for (Checkpoint cp : cpMap1)        cp.dispose();
+        for (Checkpoint cp : cpMap2)  cp.dispose();
+        for (Checkpoint cp : cpMap3)  cp.dispose();
+        if (heartFull  != null) heartFull.dispose();
+        if (heartEmpty != null) heartEmpty.dispose();
+        if (fadeTex    != null) fadeTex.dispose();
     }
 }
