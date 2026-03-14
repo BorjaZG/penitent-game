@@ -106,6 +106,14 @@ public class GameScreen implements Screen {
     private boolean paused   = false;
     private GlyphLayout layout;
 
+    // ── Menú de pausa ─────────────────────────────────────────────────────────
+    private int     pauseIndex      = 0;
+    private boolean soundMuted      = false;
+    private float   pauseBlinkTimer = 0f;
+    private boolean pauseBlinkOn    = true;
+    private static final int   PAUSE_ITEMS      = 4;
+    private static final float PAUSE_BLINK_RATE = 0.5f;
+
     // ── Save data de inicio ────────────────────────────────────────────────────
     private int   saveMap    = 1;
     private float saveX      = 200f;
@@ -221,14 +229,18 @@ public class GameScreen implements Screen {
 
         tickFade(dt);
 
-        if (fadeState == FadeState.NONE && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
+        // Toggle pausa con ESC (un único punto de entrada/salida)
+        if (fadeState == FadeState.NONE && !gameOver
+                && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             paused = !paused;
+            if (paused) { pauseIndex = 0; pauseBlinkTimer = 0f; pauseBlinkOn = true; }
+        }
 
-        if (paused)  { drawPause();    drawFade(); return; }
-        if (gameOver){ drawGameOver(); drawFade(); return; }
+        if (gameOver) { drawGameOver(); drawFade(); return; }
         if (!player.isAlive()) { gameOver = true; return; }
 
-        if (fadeState != FadeState.FADE_OUT) {
+        // Lógica de juego — solo si no estamos pausados ni en fade-out
+        if (!paused && fadeState != FadeState.FADE_OUT) {
             player.update(dt);
             processSoundEvents(dt);
             updateEnemies(dt);
@@ -236,13 +248,15 @@ public class GameScreen implements Screen {
             checkCheckpoints(dt);
         }
 
-        if (fadeState == FadeState.NONE) checkMapTransitions();
+        if (!paused && fadeState == FadeState.NONE) checkMapTransitions();
 
         if (wasAttacking && !player.isAttacking()) hitThisAttack.clear();
         wasAttacking = player.isAttacking();
 
-        if (damageFlash          > 0) damageFlash          -= dt;
-        if (checkpointToastTimer > 0) checkpointToastTimer -= dt;
+        if (!paused) {
+            if (damageFlash          > 0) damageFlash          -= dt;
+            if (checkpointToastTimer > 0) checkpointToastTimer -= dt;
+        }
 
         // Cámara
         camTargetX = Math.max(VIEW_W / 2f, Math.min(player.x + Player.HITBOX_W / 2f, currentMapW - VIEW_W / 2f));
@@ -251,7 +265,7 @@ public class GameScreen implements Screen {
         camera.position.y += (camTargetY - camera.position.y) * CAM_LERP * dt;
         camera.update();
 
-        // Dibujo
+        // Dibujo del mundo (siempre, también durante la pausa)
         Gdx.gl.glClearColor(0.05f, 0.05f, 0.07f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
@@ -273,6 +287,7 @@ public class GameScreen implements Screen {
         batch.end();
 
         drawHUD();
+        if (paused) { handlePauseInput(dt); drawPause(); }
         drawFade();
     }
 
@@ -630,33 +645,93 @@ public class GameScreen implements Screen {
 
     // ── Pausa ─────────────────────────────────────────────────────────────────
 
+    private void handlePauseInput(float dt) {
+        pauseBlinkTimer += dt;
+        if (pauseBlinkTimer >= PAUSE_BLINK_RATE) { pauseBlinkOn = !pauseBlinkOn; pauseBlinkTimer = 0f; }
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.UP)   || Gdx.input.isKeyJustPressed(Input.Keys.W))
+            pauseIndex = (pauseIndex - 1 + PAUSE_ITEMS) % PAUSE_ITEMS;
+        if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
+            pauseIndex = (pauseIndex + 1) % PAUSE_ITEMS;
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) || Gdx.input.isKeyJustPressed(Input.Keys.SPACE))
+            selectPauseItem();
+    }
+
+    private void selectPauseItem() {
+        switch (pauseIndex) {
+            case 0: // Continuar
+                paused = false;
+                pauseIndex = 0;
+                break;
+            case 1: // Activar / desactivar sonido
+                soundMuted = !soundMuted;
+                if (soundMuted) {
+                    sound.setMusicVolume(0f);
+                    sound.setSfxVolume(0f);
+                } else {
+                    sound.setMusicVolume(game.getMusicVolume());
+                    sound.setSfxVolume(game.getSfxVolume());
+                }
+                break;
+            case 2: // Volver al menú principal
+                paused = false;
+                startFade(() -> { sound.stopMusic(); game.showMenu(); });
+                break;
+            case 3: // Salir del juego
+                Gdx.app.exit();
+                break;
+        }
+    }
+
     private void drawPause() {
-        Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+        float cx = VIEW_W / 2f;
+
         batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
+
+        // Overlay semitransparente sobre el mundo
+        batch.setColor(0f, 0f, 0f, 0.62f);
+        batch.draw(fadeTex, 0, 0, VIEW_W, VIEW_H);
+
+        // Título
         batch.setColor(Color.WHITE);
+        FontManager.menu.setColor(new Color(0.92f, 0.78f, 0.28f, 1f));
+        layout.setText(FontManager.menu, "PAUSA");
+        FontManager.menu.draw(batch, "PAUSA", cx - layout.width / 2f, VIEW_H / 2f + 90);
 
-        FontManager.title.setColor(Color.WHITE);
-        layout.setText(FontManager.title, "PAUSA");
-        FontManager.title.draw(batch, "PAUSA", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 60);
+        // Opciones
+        String[] labels = {
+            "Continuar",
+            "Sonido: " + (soundMuted ? "OFF" : "ON"),
+            "Menu principal",
+            "Salir"
+        };
+        float startY  = VIEW_H / 2f + 48f;
+        float spacing = 28f;
 
-        FontManager.menu.setColor(new Color(0.8f, 0.7f, 0.5f, 1f));
-        String[] opts = { "ESC  -  Continuar", "M  -  Volver al menu" };
-        for (int i = 0; i < opts.length; i++) {
-            layout.setText(FontManager.menu, opts[i]);
-            FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - i * 38);
+        for (int i = 0; i < labels.length; i++) {
+            boolean sel = (i == pauseIndex);
+            FontManager.small.setColor(sel
+                ? new Color(0.95f, 0.82f, 0.22f, 1f)
+                : new Color(0.72f, 0.65f, 0.58f, 1f));
+            layout.setText(FontManager.small, labels[i]);
+            float lx = cx - layout.width / 2f;
+            float ly = startY - i * spacing;
+            FontManager.small.draw(batch, labels[i], lx, ly);
+            if (sel && pauseBlinkOn) {
+                FontManager.small.setColor(new Color(0.95f, 0.82f, 0.22f, 1f));
+                FontManager.small.draw(batch, ">", lx - 16, ly);
+            }
         }
-        FontManager.small.setColor(new Color(0.5f, 0.45f, 0.45f, 0.8f));
-        String info = "Guardando en RANURA " + (game.getActiveSlot() + 1);
-        layout.setText(FontManager.small, info);
-        FontManager.small.draw(batch, info, (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 100);
+
+        // Hint inferior
+        FontManager.small.setColor(new Color(0.45f, 0.42f, 0.42f, 0.85f));
+        String hint = "Flechas Navegar   ENTER Seleccionar   ESC Continuar";
+        layout.setText(FontManager.small, hint);
+        FontManager.small.draw(batch, hint, cx - layout.width / 2f, 18);
+
         batch.end();
-
-        if (fadeState == FadeState.NONE && Gdx.input.isKeyJustPressed(Input.Keys.M)) {
-            paused = false;
-            startFade(() -> { sound.stopMusic(); game.showMenu(); });
-        }
     }
 
     // ── Game Over ─────────────────────────────────────────────────────────────
