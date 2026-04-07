@@ -72,12 +72,16 @@ All enemy types expose public boolean event flags (`eventDeath`, `eventAttackSta
 
 ### Save system
 
-`SaveManager` writes JSON files (`save_slot_0.json`, `save_slot_1.json`, `save_slot_2.json`) to the libGDX local storage directory (next to the JAR / in the working directory during development). `SaveData` stores: slot, map number, player X/Y, health, zone name, and timestamp. Max 3 slots.
+`SaveManager` writes JSON files (`save_slot_0.json`, `save_slot_1.json`, `save_slot_2.json`) to the libGDX local storage directory (next to the JAR / in the working directory during development). `SaveData` stores: slot, map number, player X/Y, health, zone name, and timestamp. Max 3 slots. Zone names: Map 1 = "Las Entrañas", Map 2 = "El Osario", Map 3 = "Las Catacumbas".
 
 ### Key singleton-style managers
 
 - **`FontManager`** — static fields (`title`, `menu`, `small`) holding `BitmapFont` instances loaded from `assets/fonts/`. Call `FontManager.load()` once at startup (in `PenitentGame.create()`) and `FontManager.dispose()` on exit.
 - **`SoundManager`** — instantiated per-screen (both `MenuScreen` and `GameScreen` own one). Manages looping music tracks per map and one-shot SFX. `musicMap2` reuses the same `Music` object as `musicMap1` — do not dispose it twice.
+
+### Checkpoint
+
+`Checkpoint` represents a save altar (totem). It has two states: inactive (greyscale) and activated (golden glow). The player must be within 48 px and press B to activate. Activation is handled by `Checkpoint.update()` returning `true`, which `GameScreen` catches to trigger heal + save + enemy reset.
 
 ### Asset conventions
 
@@ -85,6 +89,7 @@ All enemy types expose public boolean event flags (`eventDeath`, `eventAttackSta
 - Enemy sprites: `assets/enemies/enemy_*.png` — 99×46 px per frame.
 - Skeleton sprites: `assets/enemies/skeleton/skeleton*.png` — 64×64 px (idle/move/hurt), 146×64 px (attack), 118×64 px (die).
 - Bat sprites: `assets/enemies/bat/Bat-*.png` — 64×64 px per frame.
+- Checkpoint sprite: `assets/totem_checkpoint.png`
 - Tilemaps: Tiled `.tmx` files in `assets/`. Each map has a layer named `"suelo"` used as the collision layer.
 - Audio: `assets/audio/*.ogg`
 - Fonts: `assets/fonts/cinzel_*.fnt` + matching `.png` atlas

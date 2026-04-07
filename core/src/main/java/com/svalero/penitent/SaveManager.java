@@ -20,6 +20,7 @@ public class SaveManager {
         public int    health  = 3;
         public String zoneName = "Las Entrañas";
         public String timestamp = "";  // cuándo se guardó
+        public List<String> collectedItems = new ArrayList<>();
     }
 
     private static String slotFile(int slot) {
@@ -27,14 +28,15 @@ public class SaveManager {
     }
 
     /** Guarda en el slot indicado (0, 1 o 2) */
-    public static void save(int slot, int map, float x, float y, int health) {
+    public static void save(int slot, int map, float x, float y, int health, List<String> collectedItems) {
         SaveData data = new SaveData();
-        data.slot     = slot;
-        data.map      = map;
-        data.playerX  = x;
-        data.playerY  = y;
-        data.health   = health;
-        data.zoneName = getZoneName(map);
+        data.slot           = slot;
+        data.map            = map;
+        data.playerX        = x;
+        data.playerY        = y;
+        data.health         = health;
+        data.zoneName       = getZoneName(map);
+        data.collectedItems = collectedItems != null ? collectedItems : new ArrayList<>();
         data.timestamp = java.time.LocalDateTime.now()
             .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
 
