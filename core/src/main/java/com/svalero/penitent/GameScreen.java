@@ -114,21 +114,36 @@ public class GameScreen implements Screen {
     private static final int   PAUSE_ITEMS      = 4;
     private static final float PAUSE_BLINK_RATE = 0.5f;
 
+    // ── Items / Inventario ────────────────────────────────────────────────────
+    private List<Item> itemsMap1      = new ArrayList<>();
+    private List<Item> itemsMap2      = new ArrayList<>();
+    private List<Item> itemsMap3      = new ArrayList<>();
+    private List<Item> collectedItems = new ArrayList<>();
+    private InventoryOverlay inventoryOverlay;
+    private boolean inventoryOpen     = false;
+    private Item    nearbyItem        = null;
+    private float   itemToastTimer    = 0f;
+    private String  itemToastName     = "";
+    private static final float ITEM_TOAST_DUR = 2.5f;
+
     // ── Save data de inicio ────────────────────────────────────────────────────
     private int   saveMap    = 1;
     private float saveX      = 200f;
     private float saveY      = 32f;
     private int   saveHealth = 3;
+    private List<String> saveCollectedItems = new ArrayList<>();
 
     // ─────────────────────────────────────────────────────────────────────────
 
     public GameScreen(PenitentGame game, SaveManager.SaveData data) {
         this.game = game;
         if (data != null) {
-            saveMap    = data.map;
-            saveX      = data.playerX;
-            saveY      = data.playerY;
-            saveHealth = data.health;
+            saveMap          = data.map;
+            saveX            = data.playerX;
+            saveY            = data.playerY;
+            saveHealth       = data.health;
+            if (data.collectedItems != null)
+                saveCollectedItems = data.collectedItems;
         }
     }
 
@@ -170,11 +185,15 @@ public class GameScreen implements Screen {
         sound.setMusicVolume(game.getMusicVolume());
         sound.setSfxVolume(game.getSfxVolume());
 
-        // Crear enemigos y checkpoints
+        // Crear enemigos, checkpoints e items
         spawnEnemiesMap1();
         spawnEnemiesMap2();
         spawnBatsMap3();
         spawnSkeletonsMap3();
+
+        inventoryOverlay = new InventoryOverlay();
+        spawnItems();
+        restoreCollectedItems(saveCollectedItems);
 
         // ── Checkpoints ──
         // Mapa 1: zona central
@@ -229,21 +248,31 @@ public class GameScreen implements Screen {
 
         tickFade(dt);
 
-        // Toggle pausa con ESC (un único punto de entrada/salida)
-        if (fadeState == FadeState.NONE && !gameOver
-                && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            paused = !paused;
-            if (paused) { pauseIndex = 0; pauseBlinkTimer = 0f; pauseBlinkOn = true; }
+        // Toggle inventario / pausa
+        if (fadeState == FadeState.NONE && !gameOver) {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.I)) {
+                if (inventoryOpen) inventoryOpen = false;
+                else if (!paused)  inventoryOpen = true;
+            }
+            if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+                if (inventoryOpen) {
+                    inventoryOpen = false;
+                } else {
+                    paused = !paused;
+                    if (paused) { pauseIndex = 0; pauseBlinkTimer = 0f; pauseBlinkOn = true; }
+                }
+            }
         }
 
         if (gameOver) { drawGameOver(); drawFade(); return; }
         if (!player.isAlive()) { gameOver = true; return; }
 
-        // Lógica de juego — solo si no estamos pausados ni en fade-out
-        if (!paused && fadeState != FadeState.FADE_OUT) {
+        // Lógica de juego — solo si no estamos pausados ni en inventario ni en fade-out
+        if (!paused && !inventoryOpen && fadeState != FadeState.FADE_OUT) {
             player.update(dt);
             processSoundEvents(dt);
             updateEnemies(dt);
+            updateItems(dt);
             checkCombat();
             checkCheckpoints(dt);
         }
@@ -253,9 +282,10 @@ public class GameScreen implements Screen {
         if (wasAttacking && !player.isAttacking()) hitThisAttack.clear();
         wasAttacking = player.isAttacking();
 
-        if (!paused) {
+        if (!paused && !inventoryOpen) {
             if (damageFlash          > 0) damageFlash          -= dt;
             if (checkpointToastTimer > 0) checkpointToastTimer -= dt;
+            if (itemToastTimer       > 0) itemToastTimer       -= dt;
         }
 
         // Cámara
@@ -276,6 +306,7 @@ public class GameScreen implements Screen {
         batch.begin();
         batch.setColor(Color.WHITE);
 
+        for (Item it : currentItems())              it.draw(batch);
         for (Checkpoint cp : currentCheckpoints()) cp.draw(batch);
         for (Enemy e : currentEnemies())            e.draw(batch);
         for (BatEnemy b : currentBats())            b.draw(batch);
@@ -287,7 +318,13 @@ public class GameScreen implements Screen {
         batch.end();
 
         drawHUD();
-        if (paused) { handlePauseInput(dt); drawPause(); }
+        if (inventoryOpen) {
+            inventoryOverlay.handleInput(collectedItems);
+            drawInventory();
+        } else if (paused) {
+            handlePauseInput(dt);
+            drawPause();
+        }
         drawFade();
     }
 
@@ -494,7 +531,9 @@ public class GameScreen implements Screen {
 
     private void onCheckpointActivated(Checkpoint cp) {
         player.setHealth(player.getMaxHealth());
-        SaveManager.save(game.getActiveSlot(), currentMap, cp.x, cp.y, player.getMaxHealth());
+        List<String> savedNames = new ArrayList<>();
+        for (Item it : collectedItems) savedNames.add(it.type.name());
+        SaveManager.save(game.getActiveSlot(), currentMap, cp.x, cp.y, player.getMaxHealth(), savedNames);
 
         // Reset diferido del mapa actual, inmediato del resto
         if (currentMap == 1) {
@@ -628,6 +667,26 @@ public class GameScreen implements Screen {
             }
         }
 
+        // Prompt recoger item
+        if (nearbyItem != null && !inventoryOpen && !paused) {
+            FontManager.menu.setColor(new Color(0.65f, 0.92f, 0.48f, 1f));
+            String pick = "E  -  Recoger";
+            layout.setText(FontManager.menu, pick);
+            FontManager.menu.draw(batch, pick, (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 100);
+        }
+
+        // Toast item recogido
+        if (itemToastTimer > 0) {
+            float alpha = Math.min(1f, itemToastTimer * 1.5f);
+            FontManager.menu.setColor(new Color(0.65f, 0.92f, 0.48f, alpha));
+            String msg = "Objeto recogido";
+            layout.setText(FontManager.menu, msg);
+            FontManager.menu.draw(batch, msg, (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 20);
+            FontManager.small.setColor(new Color(0.82f, 0.75f, 0.58f, alpha * 0.9f));
+            layout.setText(FontManager.small, itemToastName);
+            FontManager.small.draw(batch, itemToastName, (VIEW_W - layout.width) / 2f, VIEW_H / 2f);
+        }
+
         // Toast checkpoint
         if (checkpointToastTimer > 0) {
             float alpha = Math.min(1f, checkpointToastTimer * 1.2f);
@@ -640,6 +699,70 @@ public class GameScreen implements Screen {
             layout.setText(FontManager.small, sub);
             FontManager.small.draw(batch, sub, (VIEW_W - layout.width) / 2f, VIEW_H / 2f);
         }
+        batch.end();
+    }
+
+    // ── Items ─────────────────────────────────────────────────────────────────
+
+    private void spawnItems() {
+        // Mapa 1 – Las Entrañas (suelo en y=32)
+        itemsMap1.add(new Item(Item.ItemType.NUDOS_CORDON,  150f, 32f));
+        itemsMap1.add(new Item(Item.ItemType.AZOQUE,       1080f, 32f));
+
+        // Mapa 2 – El Osario (plataformas en y=224)
+        itemsMap2.add(new Item(Item.ItemType.MATRAZ_BILIAR, 340f, 224f));
+        itemsMap2.add(new Item(Item.ItemType.VELO_NEGRO,   1040f, 224f));
+
+        // Mapa 3 – Las Catacumbas (plataforma derecha del checkpoint, y=384)
+        itemsMap3.add(new Item(Item.ItemType.CALIZ,         900f, 384f));
+    }
+
+    private void restoreCollectedItems(List<String> savedNames) {
+        List<List<Item>> allMaps = new ArrayList<>();
+        allMaps.add(itemsMap1);
+        allMaps.add(itemsMap2);
+        allMaps.add(itemsMap3);
+        for (String name : savedNames) {
+            for (List<Item> mapItems : allMaps) {
+                for (Item it : mapItems) {
+                    if (it.type.name().equals(name) && !it.collected) {
+                        it.collected = true;
+                        collectedItems.add(it);
+                    }
+                }
+            }
+        }
+    }
+
+    private List<Item> currentItems() {
+        if (currentMap == 1) return itemsMap1;
+        if (currentMap == 2) return itemsMap2;
+        return itemsMap3;
+    }
+
+    private void updateItems(float dt) {
+        nearbyItem = null;
+        float px = player.x + Player.HITBOX_W / 2f;
+        float py = player.y + Player.HITBOX_H / 2f;
+        for (Item item : currentItems()) {
+            item.update(dt);
+            if (!item.collected && item.isPlayerInRange(px, py)) {
+                nearbyItem = item;
+                if (Gdx.input.isKeyJustPressed(Input.Keys.E)) {
+                    item.collected    = true;
+                    itemToastName     = item.type.displayName;
+                    itemToastTimer    = ITEM_TOAST_DUR;
+                    collectedItems.add(item);
+                }
+                break; // solo un item a la vez
+            }
+        }
+    }
+
+    private void drawInventory() {
+        batch.setProjectionMatrix(hudCam.combined);
+        batch.begin();
+        inventoryOverlay.draw(batch, collectedItems, fadeTex);
         batch.end();
     }
 
@@ -796,8 +919,12 @@ public class GameScreen implements Screen {
         for (BatEnemy b : batsMap3)         b.dispose();
         for (SkeletonEnemy s : skeletonsMap3) s.dispose();
         for (Checkpoint cp : cpMap1)        cp.dispose();
-        for (Checkpoint cp : cpMap2)  cp.dispose();
-        for (Checkpoint cp : cpMap3)  cp.dispose();
+        for (Checkpoint cp : cpMap2)        cp.dispose();
+        for (Checkpoint cp : cpMap3)        cp.dispose();
+        for (Item it : itemsMap1)           it.dispose();
+        for (Item it : itemsMap2)           it.dispose();
+        for (Item it : itemsMap3)           it.dispose();
+        if (inventoryOverlay != null) inventoryOverlay.dispose();
         if (heartFull  != null) heartFull.dispose();
         if (heartEmpty != null) heartEmpty.dispose();
         if (fadeTex    != null) fadeTex.dispose();
