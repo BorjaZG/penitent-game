@@ -265,7 +265,7 @@ public class GameScreen implements Screen {
         }
 
         if (gameOver) { drawGameOver(); drawFade(); return; }
-        if (!player.isAlive()) { gameOver = true; return; }
+        if (!player.isAlive()) { gameOver = true; gameOverTimer = 0f; return; }
 
         // Lógica de juego — solo si no estamos pausados ni en inventario ni en fade-out
         if (!paused && !inventoryOpen && fadeState != FadeState.FADE_OUT) {
@@ -482,7 +482,7 @@ public class GameScreen implements Screen {
     private void spawnSkeletonsMap3() {
         for (SkeletonEnemy s : skeletonsMap3) s.dispose();
         skeletonsMap3.clear();
-        skeletonsMap3.add(new SkeletonEnemy(512,  128, 480,  672, col3));
+        skeletonsMap3.add(new SkeletonEnemy(512,  128, 448,  704, col3));
     }
 
     private void resetSkeletonsMap3() {
@@ -808,88 +808,185 @@ public class GameScreen implements Screen {
     }
 
     private void drawPause() {
-        float cx = VIEW_W / 2f;
+        float cx      = VIEW_W / 2f;
+        float menuLH  = FontManager.menu.getLineHeight();
+        float smallLH = FontManager.small.getLineHeight();
 
         batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
 
-        // Overlay semitransparente sobre el mundo
-        batch.setColor(0f, 0f, 0f, 0.62f);
+        // ── Overlay oscuro ─────────────────────────────────────────────────────
+        batch.setColor(0f, 0f, 0f, 0.68f);
         batch.draw(fadeTex, 0, 0, VIEW_W, VIEW_H);
 
-        // Título
-        batch.setColor(Color.WHITE);
-        FontManager.menu.setColor(new Color(0.92f, 0.78f, 0.28f, 1f));
-        layout.setText(FontManager.menu, "PAUSA");
-        FontManager.menu.draw(batch, "PAUSA", cx - layout.width / 2f, VIEW_H / 2f + 90);
+        // ── Dimensiones del panel ──────────────────────────────────────────────
+        float padV   = 12f;
+        float rowH   = smallLH + 10f;
+        float sepH   = 6f;
 
-        // Opciones
-        String[] labels = {
+        // Contenido: título + sep + zona + sep + items + sep + hint
+        float panelH = padV
+                     + menuLH + sepH
+                     + smallLH + sepH
+                     + PAUSE_ITEMS * rowH + sepH
+                     + smallLH
+                     + padV;
+        float panelW = 250f;
+        float panelX = cx - panelW / 2f;
+        float panelY = VIEW_H / 2f - panelH / 2f;
+        float panelTop = panelY + panelH;
+
+        // ── Panel ──────────────────────────────────────────────────────────────
+        batch.setColor(0.03f, 0.01f, 0.05f, 0.94f);
+        batch.draw(fadeTex, panelX, panelY, panelW, panelH);
+        batch.setColor(0.60f, 0.44f, 0.10f, 0.60f);
+        batch.draw(fadeTex, panelX,              panelTop - 1, panelW, 1);
+        batch.draw(fadeTex, panelX,              panelY,       panelW, 1);
+        batch.draw(fadeTex, panelX,              panelY,       1, panelH);
+        batch.draw(fadeTex, panelX + panelW - 1, panelY,       1, panelH);
+        batch.setColor(0.80f, 0.60f, 0.16f, 0.86f);
+        batch.draw(fadeTex, panelX + 1, panelTop - 1, panelW - 2, 2);
+        batch.setColor(Color.WHITE);
+
+        // ── Recorrido de arriba a abajo ────────────────────────────────────────
+        float y = panelTop - padV;
+
+        // Título
+        FontManager.menu.setColor(0.96f, 0.80f, 0.28f, 1f);
+        layout.setText(FontManager.menu, "PAUSA");
+        FontManager.menu.draw(batch, "PAUSA", cx - layout.width / 2f, y);
+        y -= menuLH;
+
+        // Separador
+        batch.setColor(0.60f, 0.44f, 0.10f, 0.40f);
+        batch.draw(fadeTex, panelX + 14f, y, panelW - 28f, 1f);
+        batch.setColor(Color.WHITE);
+        y -= sepH;
+
+        // Zona actual (nombre guardado, sin layout.toString())
+        String zoneName = SaveManager.getZoneName(currentMap);
+        FontManager.small.setColor(0.52f, 0.46f, 0.42f, 0.85f);
+        layout.setText(FontManager.small, zoneName);
+        FontManager.small.draw(batch, zoneName, cx - layout.width / 2f, y);
+        y -= smallLH;
+
+        // Separador
+        batch.setColor(0.60f, 0.44f, 0.10f, 0.25f);
+        batch.draw(fadeTex, panelX + 14f, y, panelW - 28f, 1f);
+        batch.setColor(Color.WHITE);
+        y -= sepH;
+
+        // ── Opciones ───────────────────────────────────────────────────────────
+        String[] pauseLabels = {
             "Continuar",
             "Sonido: " + (soundMuted ? "OFF" : "ON"),
             "Menu principal",
             "Salir"
         };
-        float startY  = VIEW_H / 2f + 48f;
-        float spacing = 28f;
 
-        for (int i = 0; i < labels.length; i++) {
-            boolean sel = (i == pauseIndex);
-            FontManager.small.setColor(sel
-                ? new Color(0.95f, 0.82f, 0.22f, 1f)
-                : new Color(0.72f, 0.65f, 0.58f, 1f));
-            layout.setText(FontManager.small, labels[i]);
-            float lx = cx - layout.width / 2f;
-            float ly = startY - i * spacing;
-            FontManager.small.draw(batch, labels[i], lx, ly);
-            if (sel && pauseBlinkOn) {
-                FontManager.small.setColor(new Color(0.95f, 0.82f, 0.22f, 1f));
-                FontManager.small.draw(batch, ">", lx - 16, ly);
+        for (int i = 0; i < pauseLabels.length; i++) {
+            boolean sel    = (i == pauseIndex);
+            float   rowTop = y;
+            float   rowCtr = rowTop - rowH / 2f;
+
+            if (sel) {
+                batch.setColor(0.95f, 0.75f, 0.20f, 0.12f);
+                batch.draw(fadeTex, panelX + 2f, rowTop - rowH, panelW - 4f, rowH);
+                batch.setColor(0.95f, 0.78f, 0.22f, 0.80f);
+                batch.draw(fadeTex, panelX + 2f, rowTop - rowH, 3f, rowH);
+                batch.setColor(Color.WHITE);
             }
+
+            FontManager.small.setColor(sel
+                ? new Color(1f, 0.90f, 0.36f, 1f)
+                : new Color(0.72f, 0.64f, 0.58f, 1f));
+            layout.setText(FontManager.small, pauseLabels[i]);
+            float textDrawY = rowCtr + layout.height / 2f;
+            FontManager.small.draw(batch, pauseLabels[i], cx - layout.width / 2f, textDrawY);
+
+            if (sel && pauseBlinkOn) {
+                FontManager.small.setColor(1f, 0.90f, 0.36f, 1f);
+                FontManager.small.draw(batch, ">", panelX + 10f, textDrawY);
+            }
+            y -= rowH;
         }
 
-        // Hint inferior
-        FontManager.small.setColor(new Color(0.45f, 0.42f, 0.42f, 0.85f));
-        String hint = "Flechas Navegar   ENTER Seleccionar   ESC Continuar";
+        // Separador
+        batch.setColor(0.60f, 0.44f, 0.10f, 0.22f);
+        batch.draw(fadeTex, panelX + 14f, y, panelW - 28f, 1f);
+        batch.setColor(Color.WHITE);
+        y -= sepH;
+
+        // Hint (string literal, nunca layout.toString())
+        String hint = "ENTER  Sel.     ESC  Continuar";
+        FontManager.small.setColor(0.38f, 0.34f, 0.32f, 0.75f);
         layout.setText(FontManager.small, hint);
-        FontManager.small.draw(batch, hint, cx - layout.width / 2f, 18);
+        FontManager.small.draw(batch, hint, cx - layout.width / 2f, y);
 
         batch.end();
     }
 
     // ── Game Over ─────────────────────────────────────────────────────────────
 
+    private float gameOverTimer = 0f;
+
     private void drawGameOver() {
+        gameOverTimer += Gdx.graphics.getDeltaTime();
+
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
         batch.setProjectionMatrix(hudCam.combined);
         batch.begin();
+
+        // Viñeta rojiza sutil en las esquinas
+        float vignAlpha = Math.min(0.35f, gameOverTimer * 0.2f);
+        batch.setColor(0.4f, 0f, 0f, vignAlpha);
+        batch.draw(fadeTex, 0, 0, VIEW_W, VIEW_H);
         batch.setColor(Color.WHITE);
 
-        FontManager.title.setColor(Color.RED);
-        layout.setText(FontManager.title, "GAME OVER");
-        FontManager.title.draw(batch, "GAME OVER", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 50);
+        // Texto principal con fade-in
+        float textAlpha = Math.min(1f, Math.max(0f, (gameOverTimer - 0.6f) * 1.4f));
+        if (textAlpha > 0f) {
+            // Pulso sutil en el rojo
+            float pulse = 0.88f + 0.12f * (float)Math.sin(gameOverTimer * 1.8f);
+            FontManager.title.setColor(pulse, 0.08f, 0.08f, textAlpha);
+            layout.setText(FontManager.title, "GAME OVER");
+            FontManager.title.draw(batch, "GAME OVER", (VIEW_W - layout.width) / 2f, VIEW_H / 2f + 58f);
 
-        FontManager.menu.setColor(Color.WHITE);
-        boolean hasSave   = SaveManager.hasSlot(game.getActiveSlot());
-        String retryLabel = hasSave ? "R  -  Volver al ultimo checkpoint" : "R  -  Nueva Partida";
-        String[] opts = { retryLabel, "M  -  Volver al menu" };
-        for (int i = 0; i < opts.length; i++) {
-            layout.setText(FontManager.menu, opts[i]);
-            FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 10 - i * 35);
+            // Línea decorativa bajo el título
+            batch.setColor(0.55f, 0.06f, 0.06f, textAlpha * 0.55f);
+            batch.draw(fadeTex, VIEW_W / 2f - 140f, VIEW_H / 2f + 16f, 280f, 1f);
+            batch.setColor(Color.WHITE);
         }
+
+        // Opciones con fade-in más retardado
+        float optAlpha = Math.min(1f, Math.max(0f, (gameOverTimer - 1.4f) * 1.2f));
+        if (optAlpha > 0f) {
+            boolean hasSave   = SaveManager.hasSlot(game.getActiveSlot());
+            String retryLabel = hasSave ? "R  -  Volver al ultimo checkpoint" : "R  -  Nueva Partida";
+            String[] opts = { retryLabel, "M  -  Volver al menu" };
+            for (int i = 0; i < opts.length; i++) {
+                FontManager.menu.setColor(0.72f, 0.62f, 0.58f, optAlpha);
+                layout.setText(FontManager.menu, opts[i]);
+                FontManager.menu.draw(batch, opts[i], (VIEW_W - layout.width) / 2f, VIEW_H / 2f - 8f - i * 36f);
+            }
+        }
+
         batch.end();
 
-        if (fadeState == FadeState.NONE) {
+        if (fadeState == FadeState.NONE && gameOverTimer > 1.4f) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.R)) {
+                gameOverTimer = 0f;
                 startFade(() -> {
                     sound.stopMusic();
                     if (SaveManager.hasSlot(game.getActiveSlot())) game.reloadActiveSlot();
                     else game.startNewGame(game.getActiveSlot());
                 });
             }
-            if (Gdx.input.isKeyJustPressed(Input.Keys.M))
+            if (Gdx.input.isKeyJustPressed(Input.Keys.M)) {
+                gameOverTimer = 0f;
                 startFade(() -> { sound.stopMusic(); game.showMenu(); });
+            }
         }
     }
 

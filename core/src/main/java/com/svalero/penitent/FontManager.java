@@ -1,39 +1,53 @@
 package com.svalero.penitent;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
+import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator.FreeTypeFontParameter;
 
 /**
  * Gestor centralizado de fuentes.
- * Carga Cinzel desde assets/fonts/ y proporciona acceso global.
- * Llamar a FontManager.load() al iniciar y FontManager.dispose() al cerrar.
+ * Genera fuentes P052 (Palatino) via FreeType sin sombras.
  */
 public class FontManager {
 
-    public static BitmapFont title;  // Cinzel Bold 48px  - títulos
-    public static BitmapFont menu;   // Cinzel Regular 28px - opciones de menú
-    public static BitmapFont small;  // Cinzel Regular 18px - HUD, textos pequeños
+    /** Títulos de pantalla  — 40 px Bold */
+    public static BitmapFont title;
+    /** Opciones de menú     — 26 px Bold */
+    public static BitmapFont menu;
+    /** HUD y textos pequeños — 16 px Regular */
+    public static BitmapFont small;
+
+    private static final String CHARS =
+        FreeTypeFontGenerator.DEFAULT_CHARS
+        + "áéíóúÁÉÍÓÚñÑüÜ¿¡";
 
     public static void load() {
-        title = new BitmapFont(Gdx.files.internal("fonts/cinzel_title.fnt"),
-                               Gdx.files.internal("fonts/cinzel_title.png"), false);
-        menu  = new BitmapFont(Gdx.files.internal("fonts/cinzel_menu.fnt"),
-                               Gdx.files.internal("fonts/cinzel_menu.png"), false);
-        small = new BitmapFont(Gdx.files.internal("fonts/cinzel_small.fnt"),
-                               Gdx.files.internal("fonts/cinzel_small.png"), false);
+        FreeTypeFontGenerator boldGen    = new FreeTypeFontGenerator(Gdx.files.internal("fonts/p052_bold.otf"));
+        FreeTypeFontGenerator regularGen = new FreeTypeFontGenerator(Gdx.files.internal("fonts/p052_regular.otf"));
 
-        // Activar filtrado lineal para que escalen bien
-        for (BitmapFont f : new BitmapFont[]{title, menu, small}) {
-            f.getRegion().getTexture().setFilter(
-                com.badlogic.gdx.graphics.Texture.TextureFilter.Linear,
-                com.badlogic.gdx.graphics.Texture.TextureFilter.Linear
-            );
-        }
+        title = generate(boldGen,    32);
+        menu  = generate(boldGen,    20);
+        small = generate(regularGen, 13);
+
+        boldGen.dispose();
+        regularGen.dispose();
+    }
+
+    private static BitmapFont generate(FreeTypeFontGenerator gen, int size) {
+        FreeTypeFontParameter p = new FreeTypeFontParameter();
+        p.size       = size;
+        p.characters = CHARS;
+        p.minFilter  = Texture.TextureFilter.Linear;
+        p.magFilter  = Texture.TextureFilter.Linear;
+        p.mono       = false;
+        return gen.generateFont(p);
     }
 
     public static void dispose() {
-        if (title != null) title.dispose();
-        if (menu  != null) menu.dispose();
-        if (small != null) small.dispose();
+        if (title != null) { title.dispose(); title = null; }
+        if (menu  != null) { menu.dispose();  menu  = null; }
+        if (small != null) { small.dispose(); small = null; }
     }
 }

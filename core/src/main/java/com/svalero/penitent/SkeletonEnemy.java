@@ -194,6 +194,7 @@ public class SkeletonEnemy {
                 } else {
                     if (playerX > x) { x += CHASE_SPEED * dt; movingRight = true; }
                     else             { x -= CHASE_SPEED * dt; movingRight = false; }
+                    x = Math.max(leftLimit, Math.min(rightLimit, x));
                 }
                 break;
 

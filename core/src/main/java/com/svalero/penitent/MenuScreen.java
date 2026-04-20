@@ -6,6 +6,7 @@ import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
@@ -20,7 +21,7 @@ public class MenuScreen implements Screen {
     private static final float VIEW_W = 608f;
     private static final float VIEW_H = 320f;
 
-    // ── Menú principal ────────────────────────────────────────────────────────
+    // ── Menú principal ─────────────────────────────────────────────────────────
     private enum MenuItem { NEW_GAME, CONTINUE, OPTIONS, CREDITS, EXIT }
     private final MenuItem[] items = {
         MenuItem.NEW_GAME, MenuItem.CONTINUE, MenuItem.OPTIONS,
@@ -31,31 +32,33 @@ public class MenuScreen implements Screen {
     };
     private int selectedIndex = 0;
 
-    // ── Submenús ──────────────────────────────────────────────────────────────
+    // ── Submenús ───────────────────────────────────────────────────────────────
     private enum SubMenu { NONE, OPTIONS, CREDITS, CONTINUE_SELECT, NEW_GAME_SELECT, NEW_GAME_OVERWRITE }
     private SubMenu activeSubMenu = SubMenu.NONE;
 
-    // ── Opciones ──────────────────────────────────────────────────────────────
+    // ── Opciones ───────────────────────────────────────────────────────────────
     private float musicVolume = 0.5f;
     private float sfxVolume   = 0.8f;
     private int   optionIndex = 0;
 
-    // ── Selección de slot ─────────────────────────────────────────────────────
+    // ── Selección de slot ──────────────────────────────────────────────────────
     private int slotIndex = 0;
     private SaveManager.SaveData[] slots;
     private boolean confirmDelete = false;
 
-    // ── Cursor parpadeante ────────────────────────────────────────────────────
+    // ── Animación ──────────────────────────────────────────────────────────────
     private float   blinkTimer = 0f;
     private boolean blinkOn    = true;
-    private static final float BLINK_RATE = 0.5f;
+    private float   titleTimer = 0f;
+    private static final float BLINK_RATE = 0.55f;
 
-    // ── Audio ─────────────────────────────────────────────────────────────────
+    // ── Audio ──────────────────────────────────────────────────────────────────
     private SoundManager sound;
 
-    // ── Fondo ─────────────────────────────────────────────────────────────────
+    // ── Texturas ───────────────────────────────────────────────────────────────
     private Texture background;
     private boolean hasBackground = false;
+    private Texture uiTex;
 
     public MenuScreen(PenitentGame game) {
         this.game = game;
@@ -68,6 +71,11 @@ public class MenuScreen implements Screen {
         camera.setToOrtho(false, VIEW_W, VIEW_H);
         layout = new GlyphLayout();
 
+        Pixmap pm = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
+        pm.setColor(Color.WHITE); pm.fill();
+        uiTex = new Texture(pm);
+        pm.dispose();
+
         try {
             background    = new Texture("menu_background.png");
             hasBackground = true;
@@ -79,18 +87,22 @@ public class MenuScreen implements Screen {
         sound.setMusicVolume(game.getMusicVolume());
         sound.setSfxVolume(game.getSfxVolume());
         sound.playMenuMusic();
+
+        musicVolume = game.getMusicVolume();
+        sfxVolume   = game.getSfxVolume();
     }
 
-    // ── Render ────────────────────────────────────────────────────────────────
+    // ── Render ─────────────────────────────────────────────────────────────────
 
     @Override
     public void render(float dt) {
         handleInput(dt);
 
+        titleTimer += dt;
         blinkTimer += dt;
         if (blinkTimer >= BLINK_RATE) { blinkOn = !blinkOn; blinkTimer = 0f; }
 
-        Gdx.gl.glClearColor(0.05f, 0.02f, 0.08f, 1f);
+        Gdx.gl.glClearColor(0.04f, 0.02f, 0.07f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         camera.update();
@@ -109,15 +121,15 @@ public class MenuScreen implements Screen {
         batch.end();
     }
 
-    // ── Input ─────────────────────────────────────────────────────────────────
+    // ── Input ──────────────────────────────────────────────────────────────────
 
     private void handleInput(float dt) {
         switch (activeSubMenu) {
-            case NONE:               handleMainMenuInput();      break;
-            case OPTIONS:            handleOptionsInput(dt);     break;
-            case CONTINUE_SELECT:    handleContinueSelect();     break;
-            case NEW_GAME_SELECT:    handleNewGameSelect();      break;
-            case NEW_GAME_OVERWRITE: handleNewGameOverwrite();   break;
+            case NONE:               handleMainMenuInput();     break;
+            case OPTIONS:            handleOptionsInput(dt);   break;
+            case CONTINUE_SELECT:    handleContinueSelect();   break;
+            case NEW_GAME_SELECT:    handleNewGameSelect();    break;
+            case NEW_GAME_OVERWRITE: handleNewGameOverwrite(); break;
             case CREDITS:
                 if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) ||
                     Gdx.input.isKeyJustPressed(Input.Keys.ENTER))
@@ -138,16 +150,13 @@ public class MenuScreen implements Screen {
     private void selectCurrent() {
         switch (items[selectedIndex]) {
             case NEW_GAME:
-                // Abrir selección de slot para nueva partida (sin parar música aún)
                 slots     = SaveManager.loadAll();
                 slotIndex = 0;
-                // Preferir el primer slot vacío
                 for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
                     if (slots[i] == null) { slotIndex = i; break; }
                 }
                 activeSubMenu = SubMenu.NEW_GAME_SELECT;
                 break;
-
             case CONTINUE:
                 if (SaveManager.hasSave()) {
                     slots     = SaveManager.loadAll();
@@ -159,21 +168,11 @@ public class MenuScreen implements Screen {
                     activeSubMenu = SubMenu.CONTINUE_SELECT;
                 }
                 break;
-
-            case OPTIONS:
-                activeSubMenu = SubMenu.OPTIONS;
-                optionIndex   = 0;
-                break;
-            case CREDITS:
-                activeSubMenu = SubMenu.CREDITS;
-                break;
-            case EXIT:
-                Gdx.app.exit();
-                break;
+            case OPTIONS:  activeSubMenu = SubMenu.OPTIONS; optionIndex = 0; break;
+            case CREDITS:  activeSubMenu = SubMenu.CREDITS; break;
+            case EXIT:     Gdx.app.exit(); break;
         }
     }
-
-    // ── Input: Nueva Partida - selección de slot ──────────────────────────────
 
     private void handleNewGameSelect() {
         int max = SaveManager.getMaxSlots();
@@ -181,39 +180,25 @@ public class MenuScreen implements Screen {
             slotIndex = (slotIndex - 1 + max) % max;
         if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
             slotIndex = (slotIndex + 1) % max;
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-            if (SaveManager.hasSlot(slotIndex)) {
-                // Slot ocupado → confirmar sobreescritura
-                activeSubMenu = SubMenu.NEW_GAME_OVERWRITE;
-            } else {
-                // Slot vacío → empezar directamente
-                launchNewGame(slotIndex);
-            }
+            if (SaveManager.hasSlot(slotIndex)) activeSubMenu = SubMenu.NEW_GAME_OVERWRITE;
+            else                                launchNewGame(slotIndex);
         }
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
-            activeSubMenu = SubMenu.NONE;
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) activeSubMenu = SubMenu.NONE;
     }
 
     private void handleNewGameOverwrite() {
         if (Gdx.input.isKeyJustPressed(Input.Keys.Y) || Gdx.input.isKeyJustPressed(Input.Keys.S)) {
-            SaveManager.deleteSlot(slotIndex);
-            launchNewGame(slotIndex);
+            SaveManager.deleteSlot(slotIndex); launchNewGame(slotIndex);
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.N) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
             activeSubMenu = SubMenu.NEW_GAME_SELECT;
     }
 
-    private void launchNewGame(int slot) {
-        sound.stopMusic();
-        game.startNewGame(slot);
-    }
-
-    // ── Input: Continuar ──────────────────────────────────────────────────────
+    private void launchNewGame(int slot) { sound.stopMusic(); game.startNewGame(slot); }
 
     private void handleContinueSelect() {
         int max = SaveManager.getMaxSlots();
-
         if (confirmDelete) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.Y) || Gdx.input.isKeyJustPressed(Input.Keys.S)) {
                 SaveManager.deleteSlot(slotIndex);
@@ -225,273 +210,400 @@ public class MenuScreen implements Screen {
                 confirmDelete = false;
             return;
         }
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.UP)   || Gdx.input.isKeyJustPressed(Input.Keys.W))
             slotIndex = (slotIndex - 1 + max) % max;
         if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
             slotIndex = (slotIndex + 1) % max;
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER) || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
             if (slots != null && slots[slotIndex] != null) {
-                sound.stopMusic();
-                game.continueGame(slotIndex);
+                sound.stopMusic(); game.continueGame(slotIndex);
             }
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.DEL) || Gdx.input.isKeyJustPressed(Input.Keys.FORWARD_DEL)) {
-            if (slots != null && slots[slotIndex] != null)
-                confirmDelete = true;
+            if (slots != null && slots[slotIndex] != null) confirmDelete = true;
         }
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
-            activeSubMenu = SubMenu.NONE;
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) activeSubMenu = SubMenu.NONE;
     }
-
-    // ── Input: Opciones ───────────────────────────────────────────────────────
 
     private void handleOptionsInput(float dt) {
         if (Gdx.input.isKeyJustPressed(Input.Keys.UP)   || Gdx.input.isKeyJustPressed(Input.Keys.W))
             optionIndex = (optionIndex - 1 + 2) % 2;
         if (Gdx.input.isKeyJustPressed(Input.Keys.DOWN) || Gdx.input.isKeyJustPressed(Input.Keys.S))
             optionIndex = (optionIndex + 1) % 2;
-
         float step = 0.05f;
         if (optionIndex == 0) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.RIGHT)) musicVolume = Math.min(1f, musicVolume + step);
             if (Gdx.input.isKeyJustPressed(Input.Keys.LEFT))  musicVolume = Math.max(0f, musicVolume - step);
-            sound.setMusicVolume(musicVolume);
-            game.setMusicVolume(musicVolume);
+            sound.setMusicVolume(musicVolume); game.setMusicVolume(musicVolume);
         } else {
             if (Gdx.input.isKeyJustPressed(Input.Keys.RIGHT)) sfxVolume = Math.min(1f, sfxVolume + step);
             if (Gdx.input.isKeyJustPressed(Input.Keys.LEFT))  sfxVolume = Math.max(0f, sfxVolume - step);
             game.setSfxVolume(sfxVolume);
         }
-
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE))
-            activeSubMenu = SubMenu.NONE;
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) activeSubMenu = SubMenu.NONE;
     }
 
-    // ── Dibujo ────────────────────────────────────────────────────────────────
+    // ── Primitivas UI ──────────────────────────────────────────────────────────
+
+    private void drawOverlay(float alpha) {
+        batch.setColor(0f, 0f, 0f, alpha);
+        batch.draw(uiTex, 0, 0, VIEW_W, VIEW_H);
+        batch.setColor(Color.WHITE);
+    }
+
+    private void drawGoldLine(float x, float y, float w) {
+        batch.setColor(0.68f, 0.50f, 0.13f, 0.55f);
+        batch.draw(uiTex, x, y, w, 1f);
+        batch.setColor(Color.WHITE);
+    }
+
+    /** Título de submenú centrado con línea dorada bajo él. */
+    private void drawSubtitle(float cx, float y, String text) {
+        FontManager.menu.setColor(0.90f, 0.72f, 0.22f, 1f);
+        drawCX(cx, y, text, FontManager.menu);
+        drawGoldLine(cx - layout.width / 2f, y - FontManager.menu.getLineHeight() - 3f, layout.width);
+    }
+
+    /** Centra texto horizontalmente. drawY = top del texto. */
+    private void drawCX(float cx, float drawY, String text,
+                         com.badlogic.gdx.graphics.g2d.BitmapFont font) {
+        layout.setText(font, text);
+        font.draw(batch, text, cx - layout.width / 2f, drawY);
+    }
+
+    /** Panel oscuro con borde dorado fino. x,y = esquina inferior-izquierda. */
+    private void drawPanel(float x, float y, float w, float h) {
+        batch.setColor(0.04f, 0.02f, 0.07f, 0.93f);
+        batch.draw(uiTex, x, y, w, h);
+        batch.setColor(0.52f, 0.38f, 0.10f, 0.48f);
+        batch.draw(uiTex, x,         y + h - 1, w, 1);
+        batch.draw(uiTex, x,         y,         w, 1);
+        batch.draw(uiTex, x,         y,         1, h);
+        batch.draw(uiTex, x + w - 1, y,         1, h);
+        batch.setColor(Color.WHITE);
+    }
+
+    private void drawBottomHint(float cx, String text) {
+        float smallLH = FontManager.small.getLineHeight();
+        FontManager.small.setColor(0.34f, 0.30f, 0.28f, 0.55f);
+        drawCX(cx, 5f + smallLH, text, FontManager.small);
+    }
+
+    // ── Menú principal (estilo Blasphemous) ────────────────────────────────────
 
     private void drawMainMenu() {
-        float cx = VIEW_W / 2f;
+        float cx      = VIEW_W / 2f;
+        float titleLH = FontManager.title.getLineHeight();
+        float menuLH  = FontManager.menu.getLineHeight();
+        float smallLH = FontManager.small.getLineHeight();
 
-        FontManager.title.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
-        layout.setText(FontManager.title, "PENITENT");
-        FontManager.title.draw(batch, "PENITENT", cx - layout.width / 2f, VIEW_H - 30);
+        // Título: esquina superior izquierda con pulso dorado
+        float pulse = 0.92f + 0.08f * (float) Math.sin(titleTimer * 1.3f);
+        FontManager.title.setColor(0.94f * pulse, 0.76f * pulse, 0.24f, 1f);
+        FontManager.title.draw(batch, "PENITENT", 24f, VIEW_H - 8f);
 
-        FontManager.small.setColor(new Color(0.6f, 0.5f, 0.5f, 1f));
-        layout.setText(FontManager.small, "Un juego de Borja");
-        FontManager.small.draw(batch, "Un juego de Borja", cx - layout.width / 2f, VIEW_H - 70);
-
-        float startY  = VIEW_H / 2f + 60;
-        float spacing = 38f;
+        // Items: sin caja, alineados a la derecha, centrados verticalmente
+        float rowH      = menuLH + 16f;
+        float itemsH    = labels.length * rowH;
+        float rightEdge = VIEW_W - 28f;
+        float startY    = VIEW_H / 2f + itemsH / 2f;
 
         for (int i = 0; i < labels.length; i++) {
             boolean sel      = (i == selectedIndex);
             boolean disabled = (items[i] == MenuItem.CONTINUE && !SaveManager.hasSave());
-            String  label    = labels[i] + (disabled ? " (sin partida)" : "");
+            String  lbl      = disabled ? labels[i] + "  —" : labels[i];
 
-            if      (disabled) FontManager.menu.setColor(new Color(0.4f, 0.4f, 0.4f, 1f));
-            else if (sel)      FontManager.menu.setColor(new Color(0.95f, 0.8f, 0.2f, 1f));
-            else               FontManager.menu.setColor(new Color(0.75f, 0.65f, 0.65f, 1f));
+            float itemTop = startY - i * rowH;
 
-            layout.setText(FontManager.menu, label);
-            float lx = cx - layout.width / 2f;
-            float ly = startY - i * spacing;
-            FontManager.menu.draw(batch, label, lx, ly);
+            if (disabled)  FontManager.menu.setColor(0.28f, 0.26f, 0.26f, 0.50f);
+            else if (sel)  FontManager.menu.setColor(1.00f, 0.86f, 0.22f, 1f);
+            else           FontManager.menu.setColor(0.84f, 0.78f, 0.74f, 0.82f);
 
-            if (sel && blinkOn && !disabled) {
-                FontManager.small.setColor(new Color(0.95f, 0.8f, 0.2f, 1f));
-                FontManager.small.draw(batch, ">", lx - 25, ly);
-                FontManager.small.draw(batch, "<", lx + layout.width + 8, ly);
+            layout.setText(FontManager.menu, lbl);
+            float drawX = rightEdge - layout.width;
+            FontManager.menu.draw(batch, lbl, drawX, itemTop);
+
+            // Subrayado dorado parpadeante bajo el item seleccionado
+            if (sel && !disabled) {
+                float alpha = blinkOn ? 0.72f : 0.32f;
+                batch.setColor(0.92f, 0.72f, 0.18f, alpha);
+                batch.draw(uiTex, drawX, itemTop - layout.height - 2f, layout.width, 1f);
+                batch.setColor(Color.WHITE);
             }
         }
 
-        FontManager.small.setColor(new Color(0.5f, 0.45f, 0.45f, 1f));
-        layout.setText(FontManager.small, "Flechas Navegar   ENTER Seleccionar");
-        FontManager.small.draw(batch, "Flechas Navegar   ENTER Seleccionar",
-            cx - layout.width / 2f, 20);
+        // Hint inferior
+        FontManager.small.setColor(0.34f, 0.30f, 0.28f, 0.50f);
+        drawCX(cx, 5f + smallLH, "Flechas  Navegar     ENTER  Seleccionar", FontManager.small);
     }
+
+    // ── Nueva Partida ──────────────────────────────────────────────────────────
 
     private void drawNewGameSelect() {
-        float cx = VIEW_W / 2f;
+        float cx      = VIEW_W / 2f;
+        float menuLH  = FontManager.menu.getLineHeight();
+        float smallLH = FontManager.small.getLineHeight();
+        drawOverlay(0.62f);
 
-        FontManager.menu.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
-        layout.setText(FontManager.menu, "NUEVA PARTIDA");
-        FontManager.menu.draw(batch, "NUEVA PARTIDA", cx - layout.width / 2f, VIEW_H - 18);
+        float titleY = VIEW_H - 14f;
+        drawSubtitle(cx, titleY, "NUEVA PARTIDA");
 
-        FontManager.small.setColor(new Color(0.6f, 0.55f, 0.48f, 0.85f));
-        String sub = "Elige donde guardar tu partida";
-        layout.setText(FontManager.small, sub);
-        FontManager.small.draw(batch, sub, cx - layout.width / 2f, VIEW_H - 38);
+        float subY = titleY - menuLH - 16f;
+        FontManager.small.setColor(0.50f, 0.44f, 0.38f, 0.82f);
+        drawCX(cx, subY, "Elige un archivo de guardado", FontManager.small);
 
-        drawSlotList(cx, false);
-
-        FontManager.small.setColor(new Color(0.45f, 0.42f, 0.42f, 1f));
-        layout.setText(FontManager.small, "Flechas Navegar   ENTER Elegir   ESC Volver");
-        FontManager.small.draw(batch, "Flechas Navegar   ENTER Elegir   ESC Volver",
-            cx - layout.width / 2f, 18);
+        drawSlotCards(cx, subY - smallLH - 12f, false);
+        drawBottomHint(cx, "Flechas  Navegar     ENTER  Elegir     ESC  Volver");
     }
+
+    // ── Sobreescribir ──────────────────────────────────────────────────────────
 
     private void drawNewGameOverwrite() {
-        float cx = VIEW_W / 2f;
+        float cx      = VIEW_W / 2f;
+        float menuLH  = FontManager.menu.getLineHeight();
+        float smallLH = FontManager.small.getLineHeight();
+        drawOverlay(0.62f);
 
-        FontManager.menu.setColor(new Color(0.9f, 0.25f, 0.25f, 1f));
-        layout.setText(FontManager.menu, "SOBREESCRIBIR?");
-        FontManager.menu.draw(batch, "SOBREESCRIBIR?", cx - layout.width / 2f, VIEW_H / 2f + 80);
+        float panelH = menuLH + 4 * (smallLH + 6f) + 28f;
+        float panelW = 380f;
+        float panelY = VIEW_H / 2f - panelH / 2f;
+        drawPanel(cx - panelW / 2f, panelY, panelW, panelH);
 
-        FontManager.small.setColor(new Color(0.9f, 0.8f, 0.6f, 1f));
-        String warn = "RANURA " + (slotIndex + 1) + " ya tiene una partida guardada.";
-        layout.setText(FontManager.small, warn);
-        FontManager.small.draw(batch, warn, cx - layout.width / 2f, VIEW_H / 2f + 52);
+        float y = panelY + panelH - 12f;
 
-        FontManager.small.setColor(new Color(0.75f, 0.45f, 0.45f, 1f));
-        String warn2 = "Los datos anteriores se perderan para siempre.";
-        layout.setText(FontManager.small, warn2);
-        FontManager.small.draw(batch, warn2, cx - layout.width / 2f, VIEW_H / 2f + 34);
+        FontManager.menu.setColor(0.90f, 0.22f, 0.22f, 1f);
+        drawCX(cx, y, "SOBREESCRIBIR ARCHIVO", FontManager.menu);
+        y -= menuLH + 4f;
 
-        FontManager.small.setColor(new Color(1f, 0.9f, 0.4f, 1f));
-        layout.setText(FontManager.small, "S / Y  -  Confirmar");
-        FontManager.small.draw(batch, "S / Y  -  Confirmar", cx - layout.width / 2f, VIEW_H / 2f - 4);
+        drawGoldLine(cx - 145f, y, 290f);
+        y -= 12f;
 
-        FontManager.small.setColor(new Color(0.65f, 0.6f, 0.6f, 1f));
-        layout.setText(FontManager.small, "N / ESC  -  Cancelar");
-        FontManager.small.draw(batch, "N / ESC  -  Cancelar", cx - layout.width / 2f, VIEW_H / 2f - 22);
+        FontManager.small.setColor(0.88f, 0.78f, 0.58f, 1f);
+        drawCX(cx, y, "El ARCHIVO " + (slotIndex + 1) + " ya tiene una partida guardada.", FontManager.small);
+        y -= smallLH + 4f;
+
+        FontManager.small.setColor(0.72f, 0.38f, 0.38f, 1f);
+        drawCX(cx, y, "Los datos anteriores se perderan para siempre.", FontManager.small);
+        y -= smallLH + 12f;
+
+        drawGoldLine(cx - 95f, y, 190f);
+        y -= 12f;
+
+        FontManager.small.setColor(1f, 0.88f, 0.35f, 1f);
+        drawCX(cx, y, "S / Y  -  Confirmar", FontManager.small);
+        y -= smallLH + 4f;
+
+        FontManager.small.setColor(0.42f, 0.38f, 0.38f, 1f);
+        drawCX(cx, y, "N / ESC  -  Cancelar", FontManager.small);
     }
+
+    // ── Continuar ─────────────────────────────────────────────────────────────
 
     private void drawContinueSelect() {
-        float cx = VIEW_W / 2f;
+        float cx      = VIEW_W / 2f;
+        float menuLH  = FontManager.menu.getLineHeight();
+        float smallLH = FontManager.small.getLineHeight();
+        drawOverlay(0.62f);
 
-        FontManager.menu.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
-        layout.setText(FontManager.menu, "CONTINUAR");
-        FontManager.menu.draw(batch, "CONTINUAR", cx - layout.width / 2f, VIEW_H - 18);
+        float titleY = VIEW_H - 14f;
+        drawSubtitle(cx, titleY, "CONTINUAR");
 
-        drawSlotList(cx, true);
+        float subY = titleY - menuLH - 16f;
+        FontManager.small.setColor(0.50f, 0.44f, 0.38f, 0.82f);
+        drawCX(cx, subY, "Selecciona un archivo de guardado", FontManager.small);
 
-        FontManager.small.setColor(new Color(0.45f, 0.42f, 0.42f, 1f));
-        layout.setText(FontManager.small, "ENTER Cargar   DEL Eliminar   ESC Volver");
-        FontManager.small.draw(batch, "ENTER Cargar   DEL Eliminar   ESC Volver",
-            cx - layout.width / 2f, 18);
+        drawSlotCards(cx, subY - smallLH - 12f, true);
+        drawBottomHint(cx, "ENTER  Cargar     DEL  Eliminar     ESC  Volver");
 
         if (confirmDelete) {
-            FontManager.small.setColor(new Color(0.9f, 0.2f, 0.2f, 1f));
-            String msg = "Eliminar RANURA " + (slotIndex + 1) + "?";
-            layout.setText(FontManager.small, msg);
-            FontManager.small.draw(batch, msg, cx - layout.width / 2f, 62);
-            FontManager.small.setColor(new Color(1f, 0.9f, 0.5f, 1f));
-            layout.setText(FontManager.small, "S / Y = Confirmar      N / ESC = Cancelar");
-            FontManager.small.draw(batch, "S / Y = Confirmar      N / ESC = Cancelar",
-                cx - layout.width / 2f, 44);
+            float ph = smallLH * 2f + 28f;
+            float pw = 350f;
+            float py = VIEW_H / 2f - ph / 2f;
+            drawPanel(cx - pw / 2f, py, pw, ph);
+            FontManager.small.setColor(0.92f, 0.22f, 0.22f, 1f);
+            drawCX(cx, py + ph - 10f, "Eliminar ARCHIVO " + (slotIndex + 1) + "?", FontManager.small);
+            FontManager.small.setColor(1f, 0.88f, 0.35f, 1f);
+            drawCX(cx, py + ph - 10f - smallLH - 8f,
+                "S / Y = Si     N / ESC = Cancelar", FontManager.small);
         }
     }
 
-    /** Dibuja la lista de 3 slots. onlySaved=true solo resalta las que tienen datos. */
-    private void drawSlotList(float cx, boolean onlySaved) {
-        float startY  = VIEW_H / 2f + 70;
-        float spacing = 52f;
-        float sx      = cx - 140;
-
-        for (int i = 0; i < SaveManager.getMaxSlots(); i++) {
-            boolean sel  = (i == slotIndex);
-            SaveManager.SaveData data = (slots != null) ? slots[i] : null;
-            boolean canSelect = !onlySaved || data != null;
-
-            // Nombre de ranura
-            Color nameCol;
-            if (!canSelect)    nameCol = new Color(0.35f, 0.35f, 0.35f, 1f);
-            else if (sel)      nameCol = new Color(0.95f, 0.8f, 0.2f, 1f);
-            else               nameCol = new Color(0.55f, 0.5f, 0.5f, 1f);
-
-            FontManager.small.setColor(nameCol);
-            FontManager.small.draw(batch, "RANURA " + (i + 1), sx, startY - i * spacing);
-
-            if (data != null) {
-                FontManager.small.setColor(sel ? new Color(1f, 0.9f, 0.6f, 0.9f)
-                    : new Color(0.65f, 0.6f, 0.55f, 0.8f));
-                FontManager.small.draw(batch,
-                    data.zoneName + "   Vida: " + data.health + "/3",
-                    sx + 8, startY - i * spacing - 16);
-                FontManager.small.setColor(new Color(0.5f, 0.46f, 0.42f, 0.7f));
-                FontManager.small.draw(batch, data.timestamp, sx + 8, startY - i * spacing - 30);
-            } else {
-                FontManager.small.setColor(new Color(0.38f, 0.38f, 0.38f, 1f));
-                FontManager.small.draw(batch, "-- Vacia --", sx + 8, startY - i * spacing - 16);
-            }
-
-            if (sel && blinkOn) {
-                FontManager.small.setColor(new Color(0.95f, 0.8f, 0.2f, 1f));
-                FontManager.small.draw(batch, ">", sx - 16, startY - i * spacing);
-            }
-        }
-    }
+    // ── Opciones ──────────────────────────────────────────────────────────────
 
     private void drawOptions() {
-        float cx = VIEW_W / 2f;
+        float cx    = VIEW_W / 2f;
+        float menuLH = FontManager.menu.getLineHeight();
+        drawOverlay(0.62f);
 
-        FontManager.menu.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
-        layout.setText(FontManager.menu, "OPCIONES");
-        FontManager.menu.draw(batch, "OPCIONES", cx - layout.width / 2f, VIEW_H - 18);
+        float titleY = VIEW_H - 14f;
+        drawSubtitle(cx, titleY, "OPCIONES");
 
-        String[] optLabels = { "Musica", "Efectos" };
+        String[] optLabels = { "Musica", "Efectos de sonido" };
         float[]  optValues = { musicVolume, sfxVolume };
-        float    startY    = VIEW_H / 2f + 30;
+
+        float rowH   = menuLH + 14f + 8f;
+        float padV   = 14f;
+        float panelH = 2f * rowH + 2f * padV;
+        float panelW = 340f;
+        float panelX = cx - panelW / 2f;
+        float panelY = VIEW_H / 2f - panelH / 2f;
+        drawPanel(panelX, panelY, panelW, panelH);
+
+        float rowTop = panelY + panelH - padV;
 
         for (int i = 0; i < 2; i++) {
-            boolean sel = (i == optionIndex);
-            FontManager.menu.setColor(sel ? new Color(0.95f, 0.8f, 0.2f, 1f)
-                : new Color(0.75f, 0.65f, 0.65f, 1f));
-            String line = optLabels[i] + ":  < " + Math.round(optValues[i] * 100) + "% >";
-            layout.setText(FontManager.menu, line);
-            FontManager.menu.draw(batch, line, cx - layout.width / 2f, startY - i * 50);
-            drawVolumeBar(cx, startY - i * 50 - 18, optValues[i], sel);
+            boolean sel  = (i == optionIndex);
+            float   rTop = rowTop - i * rowH;
+            float   lblY = rTop - 2f;
+            float   barY = lblY - menuLH - 4f;
+
+            if (sel) {
+                batch.setColor(0.95f, 0.75f, 0.20f, 0.08f);
+                batch.draw(uiTex, panelX + 2, rTop - rowH, panelW - 4, rowH);
+                batch.setColor(0.95f, 0.78f, 0.22f, 0.60f);
+                batch.draw(uiTex, panelX + 2, rTop - rowH, 2f, rowH);
+                batch.setColor(Color.WHITE);
+            }
+
+            String lbl = optLabels[i] + ":   < " + Math.round(optValues[i] * 100) + "% >";
+            FontManager.menu.setColor(sel
+                ? new Color(1f, 0.90f, 0.36f, 1f)
+                : new Color(0.66f, 0.58f, 0.54f, 1f));
+            FontManager.menu.draw(batch, lbl, panelX + 18f, lblY);
+
+            drawVolumeBar(panelX + 18f, barY, panelW - 36f, optValues[i], sel);
         }
 
-        FontManager.small.setColor(new Color(0.5f, 0.45f, 0.45f, 1f));
-        layout.setText(FontManager.small, "Flechas Navegar   Izq/Der Ajustar   ESC Volver");
-        FontManager.small.draw(batch, "Flechas Navegar   Izq/Der Ajustar   ESC Volver",
-            cx - layout.width / 2f, 20);
+        drawBottomHint(cx, "Flechas  Navegar     Izq/Der  Ajustar     ESC  Volver");
     }
 
-    private void drawVolumeBar(float cx, float y, float value, boolean active) {
-        FontManager.small.setColor(active ? new Color(0.95f, 0.75f, 0.1f, 1f)
-            : new Color(0.5f, 0.5f, 0.5f, 1f));
-        StringBuilder bar = new StringBuilder("|");
-        int filled = Math.round(value * 20);
-        for (int k = 0; k < 20; k++) bar.append(k < filled ? "=" : "-");
-        bar.append("|");
-        layout.setText(FontManager.small, bar.toString());
-        FontManager.small.draw(batch, bar.toString(), cx - layout.width / 2f, y);
+    private void drawVolumeBar(float x, float y, float w, float value, boolean active) {
+        float h = 6f;
+        batch.setColor(0.08f, 0.05f, 0.10f, 1f);
+        batch.draw(uiTex, x, y, w, h);
+        batch.setColor(active
+            ? new Color(0.80f, 0.60f, 0.18f, 0.88f)
+            : new Color(0.34f, 0.28f, 0.22f, 0.70f));
+        batch.draw(uiTex, x + 1f, y + 1f, value * (w - 2f), h - 2f);
+        batch.setColor(Color.WHITE);
     }
+
+    // ── Créditos ──────────────────────────────────────────────────────────────
 
     private void drawCredits() {
-        float cx = VIEW_W / 2f;
+        float cx      = VIEW_W / 2f;
+        float menuLH  = FontManager.menu.getLineHeight();
+        float smallLH = FontManager.small.getLineHeight();
+        drawOverlay(0.62f);
 
-        FontManager.menu.setColor(new Color(0.85f, 0.7f, 0.3f, 1f));
-        layout.setText(FontManager.menu, "CREDITOS");
-        FontManager.menu.draw(batch, "CREDITOS", cx - layout.width / 2f, VIEW_H - 18);
-
-        String[] lines = {
-            "PENITENT", "",
-            "Desarrollo: Borja", "",
-            "Assets: Metroidvania Library Asset Pack",
-            "Musica: Cantes de Confesion - Carlos Viola",
-            "Sonidos: freesound.org", "",
-            "Desarrollado con libGDX", "",
-            "--- Proyecto academico ---"
+        String[][] rows = {
+            { "Desarrollo", "Borja Zorrilla Gracia" },
+            { "Arte",       "itch.io"               },
+            { "Musica",     "Carlos Viola"           },
+            { "Sonidos",    "freesound.org"          },
+            { "Motor",      "libGDX 1.14"            },
         };
 
-        float y = VIEW_H - 100;
-        for (String line : lines) {
-            FontManager.small.setColor(line.startsWith("PENITENT")
-                ? new Color(0.95f, 0.8f, 0.2f, 1f)
-                : new Color(0.75f, 0.65f, 0.65f, 1f));
-            layout.setText(FontManager.small, line);
-            FontManager.small.draw(batch, line, cx - layout.width / 2f, y);
-            y -= 22;
+        float rowLH  = smallLH + 4f;
+        float panelH = menuLH + 14f + rows.length * rowLH + 24f;
+        float panelW = 420f;
+        float panelX = cx - panelW / 2f;
+        float panelY = VIEW_H / 2f - panelH / 2f;
+        drawPanel(panelX, panelY, panelW, panelH);
+
+        float y = panelY + panelH - 12f;
+
+        float pulse = 0.90f + 0.10f * (float) Math.sin(titleTimer * 1.3f);
+        FontManager.menu.setColor(0.92f * pulse, 0.74f * pulse, 0.24f, 1f);
+        drawCX(cx, y, "PENITENT", FontManager.menu);
+        y -= menuLH + 4f;
+
+        drawGoldLine(cx - 110f, y, 220f);
+        y -= 14f;
+
+        for (String[] row : rows) {
+            if (row[0].isEmpty() && row[1].isEmpty()) { y -= 6f; continue; }
+            if (!row[0].isEmpty()) {
+                FontManager.small.setColor(0.80f, 0.62f, 0.18f, 1f);
+                FontManager.small.draw(batch, row[0] + ":", panelX + 22f, y);
+            }
+            if (!row[1].isEmpty()) {
+                FontManager.small.setColor(0.70f, 0.62f, 0.56f, 1f);
+                FontManager.small.draw(batch, row[1], cx - 10f, y);
+            }
+            y -= rowLH;
         }
 
-        FontManager.small.setColor(new Color(0.5f, 0.45f, 0.45f, 1f));
-        layout.setText(FontManager.small, "ENTER / ESC para volver");
-        FontManager.small.draw(batch, "ENTER / ESC para volver", cx - layout.width / 2f, 20);
+        drawBottomHint(cx, "ENTER / ESC  para volver");
+    }
+
+    // ── Slot cards ────────────────────────────────────────────────────────────
+
+    private void drawSlotCards(float cx, float startY, boolean onlySaved) {
+        int   max     = SaveManager.getMaxSlots();
+        float smallLH = FontManager.small.getLineHeight();
+        float cardW   = 350f;
+        float cardH   = smallLH * 3f + 16f;
+        float cardGap = 8f;
+
+        for (int i = 0; i < max; i++) {
+            boolean          sel    = (i == slotIndex);
+            SaveManager.SaveData data   = (slots != null) ? slots[i] : null;
+            boolean          canSel = !onlySaved || data != null;
+            float            cardTop = startY - i * (cardH + cardGap);
+            float            cardY   = cardTop - cardH;
+            float            cardX   = cx - cardW / 2f;
+
+            batch.setColor(sel && canSel
+                ? new Color(0.10f, 0.07f, 0.03f, 0.92f)
+                : new Color(0.04f, 0.02f, 0.07f, 0.80f));
+            batch.draw(uiTex, cardX, cardY, cardW, cardH);
+
+            float ba = sel && canSel ? 0.65f : 0.25f;
+            float br = sel && canSel ? 0.72f : 0.32f;
+            float bg = sel && canSel ? 0.52f : 0.28f;
+            float bb = sel && canSel ? 0.13f : 0.16f;
+            batch.setColor(br, bg, bb, ba);
+            batch.draw(uiTex, cardX,              cardY + cardH - 1, cardW, 1);
+            batch.draw(uiTex, cardX,              cardY,             cardW, 1);
+            batch.draw(uiTex, cardX,              cardY,             1,     cardH);
+            batch.draw(uiTex, cardX + cardW - 1,  cardY,             1,     cardH);
+
+            if (sel && canSel) {
+                batch.setColor(0.95f, 0.80f, 0.25f, 0.78f);
+                batch.draw(uiTex, cardX, cardY, 2f, cardH);
+            }
+            batch.setColor(Color.WHITE);
+
+            float lineY = cardTop - 6f;
+            Color nameCol = !canSel
+                ? new Color(0.28f, 0.28f, 0.28f, 1f)
+                : sel ? new Color(1f, 0.88f, 0.28f, 1f)
+                      : new Color(0.66f, 0.58f, 0.52f, 1f);
+            FontManager.small.setColor(nameCol);
+            FontManager.small.draw(batch, "ARCHIVO  " + (i + 1), cardX + 14f, lineY);
+
+            lineY -= smallLH + 2f;
+            if (data != null) {
+                FontManager.small.setColor(sel
+                    ? new Color(0.96f, 0.88f, 0.60f, 0.92f)
+                    : new Color(0.58f, 0.52f, 0.46f, 0.78f));
+                FontManager.small.draw(batch,
+                    data.zoneName + "   Vida: " + data.health + "/3",
+                    cardX + 14f, lineY);
+                lineY -= smallLH + 2f;
+                FontManager.small.setColor(0.36f, 0.32f, 0.28f, 0.62f);
+                FontManager.small.draw(batch, data.timestamp, cardX + 14f, lineY);
+            } else {
+                FontManager.small.setColor(0.26f, 0.24f, 0.24f, 0.82f);
+                FontManager.small.draw(batch, "-- Vacio --", cardX + 14f, lineY);
+            }
+
+            if (sel && canSel && blinkOn) {
+                FontManager.small.setColor(1f, 0.88f, 0.28f, 1f);
+                FontManager.small.draw(batch, ">", cardX + cardW - 18f, cardTop - 6f);
+            }
+        }
     }
 
     // ── Ciclo de vida ─────────────────────────────────────────────────────────
@@ -504,7 +616,8 @@ public class MenuScreen implements Screen {
     @Override
     public void dispose() {
         batch.dispose();
-        if (hasBackground) background.dispose();
-        if (sound != null) sound.dispose();
+        if (uiTex        != null) uiTex.dispose();
+        if (hasBackground)        background.dispose();
+        if (sound        != null) sound.dispose();
     }
 }
