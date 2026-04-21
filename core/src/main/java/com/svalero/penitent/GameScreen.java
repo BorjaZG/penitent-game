@@ -201,8 +201,7 @@ public class GameScreen implements Screen {
 
         // Mapa 2: reubicado a la derecha del bloque central (cursor en la foto ~x=672)
         // El bloque XXXXXXXX en row 13 va de col 16 a 23 (world x 512-736)
-        // Cursor apuntaba a col ~22-23 → x=672, plataforma en y=192+32=224
-        cpMap2.add(new Checkpoint(672, 224));
+        cpMap2.add(new Checkpoint(608, 224));
 
         // Mapa 3: al fondo derecho (plataforma en col 26-29 row 15, world y=128)
         cpMap3.add(new Checkpoint(704, 384));
